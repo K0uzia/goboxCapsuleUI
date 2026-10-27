@@ -20,9 +20,9 @@ func PrintNetworkInterfaces() {
 		return
 	}
 
-	fmt.Printf("\n" + strings.Repeat("=", 70) + "\n")
+	fmt.Print("\n" + strings.Repeat("=", 70) + "\n")
 	fmt.Printf("  NETWORK INTERFACES DETECTED: %d\n", len(interfaces))
-	fmt.Printf(strings.Repeat("=", 70) + "\n\n")
+	fmt.Print(strings.Repeat("=", 70) + "\n\n")
 
 	for i, iface := range interfaces {
 		fmt.Printf("Interface #%d\n", i+1)

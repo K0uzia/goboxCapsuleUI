@@ -39,9 +39,11 @@ func (m model) View() string {
 }
 
 func main() {
-	display.DisplayBatteryReport()
+	if err := display.DisplayBatteryReport(); err != nil {
+		fmt.Println("Erreur:", err)
+	}
 	p := tea.NewProgram(NewModel())
-	if err := p.Start(); err != nil {
+	if _, err := p.Run(); err != nil {
 		fmt.Println("Erreur:", err)
 		os.Exit(1)
 	}

@@ -10,11 +10,7 @@ import (
 func DisplayBatteryReport() error {
 	// 1. Récupérer les données brutes
 	info, err := probe.GetBatteryInfo()
-	if err != nil {
-		return fmt.Errorf("erreur batterie: %w", err)
-	}
-
-	if info.Capacity < 0 {
+	if err != nil || info.Capacity < 0 {
 		fmt.Println("❌ Batterie        : Pas de batterie détectée")
 		return nil
 	}

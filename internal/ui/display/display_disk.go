@@ -20,9 +20,9 @@ func DiskInfo() {
 		return
 	}
 
-	fmt.Printf("\n" + strings.Repeat("=", 70) + "\n")
+	fmt.Print("\n" + strings.Repeat("=", 70) + "\n")
 	fmt.Printf("  Disques détectés : %d\n", len(disks))
-	fmt.Printf(strings.Repeat("=", 70) + "\n\n")
+	fmt.Print(strings.Repeat("=", 70) + "\n\n")
 
 	for i, diskName := range disks {
 		info, err := probe.GetDiskInfo(diskName)
