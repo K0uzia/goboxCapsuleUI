@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
@@ -30,10 +29,10 @@ func runPorts(t *testCtx) result {
 	usbSeen, videoSeen := usbDevices(), connectedOutputs()
 	t.log("%d périphérique(s) USB déjà présent(s), %d sortie(s) vidéo connectée(s)", len(usbSeen), len(videoSeen))
 
-	var counter *canvas.Text
+	var counter *tText
 	t.panel(func() fyne.CanvasObject {
-		counter = text("0 USB · 0 vidéo", 22, true, colInk)
-		return box(container.NewVBox(caption("Branchements détectés"), counter), colLine, colPanel)
+		counter = text("0 USB · 0 vidéo", 22, true, cText)
+		return box(container.NewVBox(caption("Branchements détectés"), counter), cLine, cSurface2)
 	})
 
 	answer := t.ask("Tous les ports ont été testés ?", verdictChoices...)
@@ -272,10 +271,9 @@ func newMouseZone() *mouseZone {
 		z.checks[k] = c
 		row.Add(c)
 	}
-	bg := canvas.NewRectangle(colPanel)
-	bg.CornerRadius = 6
-	bg.SetMinSize(fyne.NewSize(0, 160))
-	z.root = container.NewVBox(container.NewStack(bg, container.NewCenter(text("Zone de test", 14, true, colMuted))), row)
+	bg := newRect(cSurface2, cLine, 8)
+	bg.MinSz = fyne.NewSize(0, 160)
+	z.root = container.NewVBox(container.NewStack(bg, container.NewCenter(text("Zone de test", 14, true, cMuted))), row)
 	z.ExtendBaseWidget(z)
 	return z
 }

@@ -6,7 +6,7 @@ d'afficher un panneau, de poser une question (`choose` / `ask`) et d'être annul
 
 | Test | Fichier | État | Reste à faire |
 |---|---|---|---|
-| Stress CPU | `test_stress.go` | ✅ charge native sur tous les cœurs, 3 min, temp / charge / fréquence en direct, histogramme, seuil 90 °C | Durée réglable ; détecter le throttling (fréquence qui chute) |
+| Stress CPU | `test_stress.go`, `stress_sensors.go`, `charts.go` | ✅ sur le modèle d'OCCT : durée 3 / 10 / 30 min ou 1 h, charge constante ou variable, courbes température et fréquence, charge et fréquence par cœur, consommation (RAPL), erreurs de calcul vérifiées, throttling détecté, arrêt à 90 °C ou à la première erreur, verdict par critère (réserve à 85 °C ou throttling). Données simulées hors Linux | Vérifier sous Linux et comparer à OCCT sur la même machine |
 | Ports | `test_devices.go` | ✅ détection en direct des branchements USB et des écrans (`/sys/class/drm`) | Débit USB (lecture d'un fichier test sur la clé) ; détail par type de sortie (HDMI / DP / VGA) dans la fiche |
 | Son | `test_devices.go` | ✅ tonalité gauche puis droite (WAV généré), rejouer, verdict du technicien | **Micro** : enregistrer 10 s puis réécouter (LACAPSULE le fait) ; jack séparé |
 | Réseau | `test_devices.go` | ✅ interfaces, lien, DNS, accès internet, latence | Scan Wi-Fi ; débit |

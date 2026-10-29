@@ -2,12 +2,10 @@ package gui
 
 import (
 	"fmt"
-	"image/color"
 	"os"
 	"strings"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 )
@@ -34,8 +32,8 @@ var keyboardRows = [][]keyDef{
 
 type keyCap struct {
 	def   keyDef
-	bg    *canvas.Rectangle
-	label *canvas.Text
+	bg    *tRect
+	label *tText
 }
 
 func runKeyboard(t *testCtx) result {
@@ -47,7 +45,7 @@ func runKeyboard(t *testCtx) result {
 	pressed := map[int]bool{}
 	caps := map[int]*keyCap{}
 	total := 0
-	var counter *canvas.Text
+	var counter *tText
 
 	relabel := func() {
 		for _, c := range caps {
@@ -65,10 +63,9 @@ func runKeyboard(t *testCtx) result {
 			objs := make([]fyne.CanvasObject, len(row))
 			flex := make([]float32, len(row))
 			for i, d := range row {
-				bg := canvas.NewRectangle(color.White)
-				bg.StrokeColor, bg.StrokeWidth, bg.CornerRadius = colLine, 1, 4
-				bg.SetMinSize(fyne.NewSize(0, 30))
-				lbl := text("", 11, true, colInk)
+				bg := newRect(cSurface2, cLineStrong, 5)
+				bg.MinSz = fyne.NewSize(0, 30)
+				lbl := text("", 11, true, cText)
 				lbl.Alignment = fyne.TextAlignCenter
 				caps[d.Code] = &keyCap{def: d, bg: bg, label: lbl}
 				objs[i] = container.NewStack(bg, container.NewCenter(lbl))
@@ -78,8 +75,8 @@ func runKeyboard(t *testCtx) result {
 			rows.Add(container.New(&flexRowLayout{flex: flex, gap: 4}, objs...))
 		}
 		relabel()
-		counter = text(fmt.Sprintf("0 / %d touches", total), 13, true, colInk)
-		toggle := outlineButton("AZERTY / QWERTY", func() { azerty = !azerty; relabel() })
+		counter = text(fmt.Sprintf("0 / %d touches", total), 13, true, cText)
+		toggle := secondaryButton("AZERTY / QWERTY", nil, func() { azerty = !azerty; relabel() })
 		return container.NewVBox(container.NewBorder(nil, nil, counter, toggle), rows)
 	})
 
@@ -93,8 +90,8 @@ func runKeyboard(t *testCtx) result {
 					return
 				}
 				pressed[c.def.Code] = true
-				c.bg.FillColor, c.bg.StrokeColor, c.label.Color = colTeal, colTeal, color.White
-				c.bg.Refresh()
+				c.bg.setRoles(cSuccess, cSuccess)
+				c.label.Role = cAccentText
 				c.label.Refresh()
 				counter.Text = fmt.Sprintf("%d / %d touches", len(pressed), total)
 				counter.Refresh()

@@ -48,6 +48,9 @@ func (t *testCtx) panel(build func() fyne.CanvasObject) {
 // ui exécute f sur le thread de l'interface
 func (t *testCtx) ui(f func()) { fyne.Do(f) }
 
+// markSimulated signale à l'écran que les mesures sont simulées
+func (t *testCtx) markSimulated() { fyne.Do(func() { t.view.simBadge.Show() }) }
+
 // ask affiche une question avec des boutons, sans bloquer
 func (t *testCtx) ask(prompt string, opts ...choice) <-chan status {
 	ch := make(chan status, 1)

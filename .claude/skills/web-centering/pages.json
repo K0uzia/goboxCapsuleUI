@@ -1,0 +1,7 @@
+{
+  "pages": [
+    { "path": "/mentions-legales/", "check": [{ "selector": "main h1" }, { "selector": "main .contenu" }] },
+    { "path": "/contact/", "check": [{ "selector": "main h1" }, { "selector": "main form" }] },
+    { "path": "/404/", "check": [{ "selector": "main h1" }] }
+  ]
+}

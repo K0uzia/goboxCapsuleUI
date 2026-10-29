@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "additionalDirectories": ["../kouzia-boite-a-outils"],
+    "allow": [
+      "Read(../kouzia-boite-a-outils/**)",
+      "Bash(node ../kouzia-boite-a-outils/outils/indexer.mjs)",
+      "Bash(node .claude/skills/web-audit/scripts/check-dist.mjs *)",
+      "Bash(node .claude/skills/web-audit/scripts/check-repo.mjs)",
+      "Bash(bash .claude/skills/web-audit/scripts/check-headers.sh *)",
+      "Bash(npm run build)",
+      "Bash(npx astro build)",
+      "Bash(make verify)",
+      "Bash(make check)",
+      "Bash(make build)"
+    ]
+  },
+  "hooks": {
+  "SessionStart": [
+    { "hooks": [ { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/verifier-mode-emploi.sh\"" } ] }
+  ],
+  "PreToolUse": [
+    { "matcher": "Bash|PowerShell", "hooks": [ { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/refuser-arret-par-motif.mjs\"" } ] }
+  ]
+  }
+}

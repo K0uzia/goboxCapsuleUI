@@ -13,15 +13,16 @@ import (
 func TestToolFlow(t *testing.T) {
 	a := test.NewApp()
 	defer a.Quit()
+	a.Settings().SetTheme(newTheme(true))
 	w := a.NewWindow("test")
 
 	s := newSession()
-	s.Tests = []*testDef{{ID: "fake", Title: "Faux", Category: catPeripherals, Color: colPeripheral,
+	s.Tests = []*testDef{{ID: "fake", Title: "Faux", Category: catPeripherals, Color: cPeripheral, Soft: cPeripheralBg,
 		Run: func(tc *testCtx) result {
 			tc.log("étape 1")
 			return result{Status: statusWarn, Detail: "réserve"}
 		}}}
-	fiche := newFichePanel(s, func() {})
+	fiche := newFichePanel(s)
 	tools := newToolsPanel(s, w)
 	_ = fiche
 

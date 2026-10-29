@@ -1,0 +1,4 @@
+/* N0 : seul endroit des valeurs brutes (skill web-design-system). */
+:root {
+  --font-ui: system-ui, sans-serif;
+}

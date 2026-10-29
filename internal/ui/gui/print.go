@@ -56,22 +56,22 @@ func newPrintData(s *session) printData {
 	fm := s.Form
 	now := time.Now()
 	return printData{
-		Ref: s.Ref, Date: now.Format("02/01/2006"), Tech: orDash(fm.Tech), Duration: s.elapsed(),
-		Machine: s.Machine.Name(), Serial: orDash(s.Machine.Serial),
+		Ref: s.Ref, Date: now.Format("02/01/2006"), Tech: orUnknown(fm.Tech, "non renseigné"), Duration: s.elapsed(),
+		Machine: s.Machine.Name(), Serial: orUnknown(s.Machine.Serial, "non lu"),
 		Aspect: fm.Aspect, CleanIn: fm.CleanIn, CleanOut: fm.CleanOut,
 		Verdict: v.Label, VerdictSub: v.Sub, VerdictClass: verdictClass(v),
 		Video: rows(ctrlVideo), Audio: rows(ctrlAudio), System: rows(ctrlSystem),
 		Maintenance: []printRow{
-			{"Temp. CPU avant stress", orDash(s.data("stress", "before")), ""},
-			{"Temp. CPU après stress", orDash(s.data("stress", "after")), ""},
+			{"Temp. CPU avant stress", orUnknown(s.data("stress", "before"), notMeasured), ""},
+			{"Temp. CPU après stress", orUnknown(s.data("stress", "after"), notMeasured), ""},
 			{"Pâte thermique changée", fm.Paste, ""},
 			{"Shred des disques durs", fm.Shred, ""},
 			{"Chargeur en bon état", fm.Charger, ""},
 			{"Pile setup changée", fm.CMOS, ""},
 			{"Lecteur DVD", fm.DVD, ""},
 			{"Ports USB défectueux", fm.USBBad, ""},
-			{"Sortie vidéo autre", orDash(fm.OtherVideo), ""},
-			{"Autre", orDash(fm.Other), ""},
+			{"Sortie vidéo autre", orUnknown(fm.OtherVideo, "aucune"), ""},
+			{"Autre", orUnknown(fm.Other, "rien à signaler"), ""},
 		},
 		Notes:     strings.TrimSpace(fm.Notes),
 		Inventory: s.Inventory,
@@ -80,10 +80,10 @@ func newPrintData(s *session) printData {
 }
 
 func verdictClass(v verdict) string {
-	switch v.Color {
-	case colTeal:
+	switch v.Kind {
+	case verdictOK:
 		return "ok"
-	case colRed:
+	case verdictBad:
 		return "bad"
 	}
 	return ""

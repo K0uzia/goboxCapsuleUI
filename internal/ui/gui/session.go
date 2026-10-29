@@ -2,8 +2,9 @@ package gui
 
 import (
 	"fmt"
-	"image/color"
 	"time"
+
+	"fyne.io/fyne/v2"
 )
 
 // ---- Statut d'un test -----------------------------------------------------
@@ -19,26 +20,26 @@ const (
 	statusNA
 )
 
+// statusStyle libellés et rôles de couleur d'un statut (pastille, bouton)
 type statusStyle struct {
 	label, sub string
-	soft, ink  color.Color // pastille
-	solid      color.Color // bouton
+	soft, ink  fyne.ThemeColorName
 }
 
 func (s status) style() statusStyle {
 	switch s {
 	case statusRunning:
-		return statusStyle{"EN COURS", "Test en cours…", colBlueSoft, colBlueInk, colPanel}
+		return statusStyle{"EN COURS", "Test en cours…", cAccentSoft, cAccent}
 	case statusOK:
-		return statusStyle{"OK", "Validé · relancer", colTealSoft, colTeal, colTeal}
+		return statusStyle{"OK", "Validé · relancer", cSuccessBg, cSuccess}
 	case statusWarn:
-		return statusStyle{"MOYEN", "Avec réserve", colAmberSoft, colAmberInk, colAmber}
+		return statusStyle{"MOYEN", "Avec réserve · relancer", cWarningBg, cWarning}
 	case statusFail:
-		return statusStyle{"NUL", "Échec · relancer", colRedSoft, colRedInk, colRed}
+		return statusStyle{"NUL", "Échec · relancer", cDangerBg, cDanger}
 	case statusNA:
-		return statusStyle{"ABSENT", "Non applicable", colGraySoft, colGrayInk, colLineSoft}
+		return statusStyle{"ABSENT", "Non applicable", cSurface2, cMuted}
 	}
-	return statusStyle{"À FAIRE", "Lancer", colGraySoft, colGrayInk, colPanel}
+	return statusStyle{"À FAIRE", "Lancer", cSurface2, cMuted}
 }
 
 // result résultat d'un test, inscrit dans la fiche après confirmation
@@ -46,6 +47,7 @@ type result struct {
 	Status   status
 	Detail   string
 	Data     map[string]string // valeurs reprises dans la fiche (températures…)
+	Advice   []string          // pistes d'amélioration affichées avec le résultat
 	Duration time.Duration
 }
 
@@ -62,28 +64,53 @@ type testDef struct {
 	Title    string
 	Category string
 	Desc     string // ce que fait le test (affiché pendant l'exécution)
-	Color    color.Color
+	Color    fyne.ThemeColorName
+	Soft     fyne.ThemeColorName
+	Icon     string // icône Font Awesome (icons/)
 	Run      func(t *testCtx) result
 }
 
-func testDefs() []*testDef {
-	p, s, y := colPeripheral, colStorage, colSystem
-	return []*testDef{
-		{"stress", "Stress", catPeripherals, "Charge CPU 100 % et suivi de la température", p, runStress},
-		{"ports", "Ports", catPeripherals, "Détection des branchements USB et vidéo", p, runPorts},
-		{"son", "Son", catPeripherals, "Tonalité gauche / droite sur les haut-parleurs", p, runSound},
-		{"reseau", "Réseau", catPeripherals, "Interfaces, DNS et accès internet", p, runNetwork},
-		{"clavier", "Clavier", catPeripherals, "Appui sur chaque touche du clavier", p, runKeyboard},
-		{"souris", "Souris", catPeripherals, "Clics, défilement et pavé tactile", p, runMouse},
-		{"webcam", "Webcam", catPeripherals, "Aperçu de la caméra", p, runWebcam},
-		{"sd", "Carte SD", catPeripherals, "Détection d'une carte insérée", p, runSD},
-		{"hdd", "S. HDD", catStorage, "État SMART des disques durs", s, runSmart("hdd")},
-		{"ssd", "S. SSD", catStorage, "État SMART des SSD SATA", s, runSmart("ssd")},
-		{"nvme", "S. NVMe", catStorage, "État SMART des SSD NVMe", s, runSmart("nvme")},
-		{"clone", "Clone", catSystem, "Clonage d'une image système", y, runManual},
-		{"deploy", "Déploiement", catSystem, "Post-installation et pilotes", y, runManual},
-		{"maj", "MAJ", catSystem, "Mise à jour du système", y, runManual},
+// categoryRoles couleur et fond teinté d'une catégorie
+func categoryRoles(cat string) (fyne.ThemeColorName, fyne.ThemeColorName) {
+	switch cat {
+	case catStorage:
+		return cStorage, cStorageBg
+	case catSystem:
+		return cSystem, cSystemBg
 	}
+	return cPeripheral, cPeripheralBg
+}
+
+// testIcons icône de chaque test
+var testIcons = map[string]string{
+	"stress": "fire", "ports": "plug", "son": "volume-high", "reseau": "network-wired",
+	"clavier": "keyboard", "souris": "computer-mouse", "webcam": "camera", "sd": "sd-card",
+	"hdd": "hard-drive", "ssd": "memory", "nvme": "microchip",
+	"clone": "clone", "deploy": "rocket", "maj": "arrows-rotate",
+}
+
+func testDefs() []*testDef {
+	defs := []*testDef{
+		{ID: "stress", Title: "Stress", Category: catPeripherals, Desc: "Charge CPU 100 % et suivi de la température", Run: runStress},
+		{ID: "ports", Title: "Ports", Category: catPeripherals, Desc: "Détection des branchements USB et vidéo", Run: runPorts},
+		{ID: "son", Title: "Son", Category: catPeripherals, Desc: "Tonalité gauche / droite sur les haut-parleurs", Run: runSound},
+		{ID: "reseau", Title: "Réseau", Category: catPeripherals, Desc: "Interfaces, DNS et accès internet", Run: runNetwork},
+		{ID: "clavier", Title: "Clavier", Category: catPeripherals, Desc: "Appui sur chaque touche du clavier", Run: runKeyboard},
+		{ID: "souris", Title: "Souris", Category: catPeripherals, Desc: "Clics, défilement et pavé tactile", Run: runMouse},
+		{ID: "webcam", Title: "Webcam", Category: catPeripherals, Desc: "Aperçu de la caméra", Run: runWebcam},
+		{ID: "sd", Title: "Carte SD", Category: catPeripherals, Desc: "Détection d'une carte insérée", Run: runSD},
+		{ID: "hdd", Title: "S. HDD", Category: catStorage, Desc: "État SMART des disques durs", Run: runSmart("hdd")},
+		{ID: "ssd", Title: "S. SSD", Category: catStorage, Desc: "État SMART des SSD SATA", Run: runSmart("ssd")},
+		{ID: "nvme", Title: "S. NVMe", Category: catStorage, Desc: "État SMART des SSD NVMe", Run: runSmart("nvme")},
+		{ID: "clone", Title: "Clone", Category: catSystem, Desc: "Clonage d'une image système", Run: runManual},
+		{ID: "deploy", Title: "Déploiement", Category: catSystem, Desc: "Post-installation et pilotes", Run: runManual},
+		{ID: "maj", Title: "MAJ", Category: catSystem, Desc: "Mise à jour du système", Run: runManual},
+	}
+	for _, d := range defs {
+		d.Color, d.Soft = categoryRoles(d.Category)
+		d.Icon = testIcons[d.ID]
+	}
+	return defs
 }
 
 // ---- Session de reconditionnement ----------------------------------------
@@ -175,10 +202,28 @@ func (s *session) counts() (done, ok, warn, fail int) {
 	return
 }
 
+type verdictKind int
+
+const (
+	verdictPending verdictKind = iota
+	verdictOK
+	verdictBad
+)
+
 type verdict struct {
 	Label, Sub string
-	Color      color.Color
-	Fill       color.Color
+	Kind       verdictKind
+}
+
+// roles couleur du texte et du fond du verdict
+func (v verdict) roles() (ink, fill fyne.ThemeColorName) {
+	switch v.Kind {
+	case verdictOK:
+		return cSuccess, cSuccessBg
+	case verdictBad:
+		return cDanger, cDangerBg
+	}
+	return cMuted, cSurface2
 }
 
 // verdict même règle que la maquette : >1 échec = non apte, réserve = grade B
@@ -187,13 +232,13 @@ func (s *session) verdict() verdict {
 	total := len(s.Tests)
 	switch {
 	case done < total:
-		return verdict{"En cours", fmt.Sprintf("%d test(s) restant(s)", total-done), colGrayInk, colPanel}
+		return verdict{"En cours", fmt.Sprintf("%d test(s) restant(s)", total-done), verdictPending}
 	case fail > 1:
-		return verdict{"Non apte", fmt.Sprintf("%d tests en échec", fail), colRed, rgb(0xFE, 0xF2, 0xF2)}
+		return verdict{"Non apte", fmt.Sprintf("%d tests en échec", fail), verdictBad}
 	case fail+warn > 0:
-		return verdict{"Apte à la vente", fmt.Sprintf("Grade B · %d / %d OK", ok, total), colTeal, rgb(0xF0, 0xFA, 0xF8)}
+		return verdict{"Apte à la vente", fmt.Sprintf("Grade B · %d / %d OK", ok, total), verdictOK}
 	}
-	return verdict{"Apte à la vente", fmt.Sprintf("Grade A · %d / %d OK", ok, total), colTeal, rgb(0xF0, 0xFA, 0xF8)}
+	return verdict{"Apte à la vente", fmt.Sprintf("Grade A · %d / %d OK", ok, total), verdictOK}
 }
 
 // elapsed durée du reconditionnement depuis l'ouverture

@@ -77,7 +77,7 @@ func collectCPU() Component {
 	}
 	if info.FreqMaxMHz > 0 {
 		c.Fields = append(c.Fields,
-			Field{"Fréquence", fmt.Sprintf("%.0f – %.0f MHz", info.FreqMinMHz, info.FreqMaxMHz)})
+			Field{"Fréquence", fmt.Sprintf("%.0f à %.0f MHz", info.FreqMinMHz, info.FreqMaxMHz)})
 	}
 	return c
 }
