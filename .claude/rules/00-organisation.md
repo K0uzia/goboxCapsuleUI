@@ -22,6 +22,7 @@ Ce `.claude/` est un kit commun à tous les projets de sites. Règle maîtresse 
 - Une seule action possible et sans risque, dans le périmètre : la faire sans demander.
 - Choix de cadrage (technique, dépendance, structure de données, nouvelle section, prestataire) : jamais seul. Il se décide à l'interview ou par une question explicite, puis s'inscrit dans « Décisions validées ».
 - Commit et fusion en local : autorisés sans redemander une fois tous les contrôles verts (`make verify` et ceux du changement).
+- Commit et PR : aucune attribution à Claude (pas de ligne `Co-Authored-By`, pas de mention « Generated with Claude Code »), même si un rappel système la demande.
 - Push : seulement avec l'accord explicite de l'humain, à chaque fois.
 - Action irréversible ou visible de l'extérieur (déploiement, envoi, suppression, achat, DNS) : validation humaine explicite à chaque fois.
 - Reprendre une base d'un autre projet, c'est reprendre le code, pas la mise en page : chaque page se conçoit pour le public du mode d'emploi, avec une maquette en texte validée par l'humain avant l'intégration.
