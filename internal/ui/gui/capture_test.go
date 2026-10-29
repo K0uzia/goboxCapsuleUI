@@ -62,9 +62,42 @@ func TestCaptures(t *testing.T) {
 				st := []status{statusOK, statusOK, statusWarn, statusOK, statusFail, statusNA}[i%6]
 				s.Results[def.ID] = result{Status: st, Detail: "Résultat de démonstration pour la capture"}
 			}
+			s.Results["ports"] = result{Status: statusOK, Detail: "USB 6 / 6 · HDMI 1 / 1 · VGA 0 / 1",
+				Data: map[string]string{"usb": "6 / 6", "HDMI": "1 / 1", "VGA": "0 / 1"}}
+			s.Results["stress"] = result{Status: statusOK, Data: map[string]string{"before": "41 °C", "after": "78 °C"}}
+			s.Results["son"] = result{Status: statusWarn, Data: map[string]string{"card": statusData(statusOK), "speakers": statusData(statusWarn),
+				"jack": statusData(statusOK), "mic_int": statusData(statusOK), "mic_in": statusData(statusNA)}}
+			s.Form.Checks["Autre"] = statusOK
+			s.Form.Texts["Autre"] = "Lecteur d'empreintes"
+			s.Machine = machineInfo{Vendor: "HP", Product: "ProBook 450 G3", Serial: "5CD70729PR"}
+			s.Inventory = demoInventory()
 			s.changed()
 		})
 	}
+	for _, id := range []string{"souris", "ports", "son"} {
+		capture(t, dir, "sombre-test-"+id, big, true, func(tools *toolsPanel, s *session, w fyne.Window) {
+			test.Tap(tools.buttons[id])
+			time.Sleep(400 * time.Millisecond)
+			if id == "souris" {
+				z := findMouseZone(tools.view.panel)
+				z.MouseMoved(nil)
+				z.Scrolled(&fyne.ScrollEvent{Scrolled: fyne.Delta{DY: 1}})
+				time.Sleep(100 * time.Millisecond)
+			}
+		})
+	}
+	// test son en données simulées, jusqu'à l'étape du micro interne
+	simulated = true
+	capture(t, dir, "sombre-test-son-micro", big, true, func(tools *toolsPanel, s *session, w fyne.Window) {
+		test.Tap(tools.buttons["son"])
+		for i := 0; i < 2; i++ { // haut-parleurs puis prise casque : OK
+			time.Sleep(300 * time.Millisecond)
+			answerAsk(tools.view, 0)
+		}
+		time.Sleep(300 * time.Millisecond)
+	})
+	simulated = false
+	captureInventory(t, dir)
 	captureStress(t, dir)
 	capture(t, dir, "sombre-stress-reglages-1366", fyne.NewSize(1366, 768), true, func(tools *toolsPanel, s *session, w fyne.Window) {
 		test.Tap(tools.buttons["stress"])
@@ -141,4 +174,66 @@ func save(t *testing.T, dir, name string, w fyne.Window) {
 	if err := png.Encode(f, w.Canvas().Capture()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func findMouseZone(c *fyne.Container) *mouseZone {
+	for _, o := range c.Objects {
+		if z, ok := o.(*mouseZone); ok {
+			return z
+		}
+	}
+	return newMouseZone(nil)
+}
+
+// demoInventory inventaire d'un portable, pour les captures
+func demoInventory() []Component {
+	return []Component{
+		{Name: "Processeur", Icon: "microchip", Summary: "Intel(R) Core(TM) i3-6100U CPU @ 2.30GHz", Fields: []Field{{"Architecture", "x86_64"}, {"Cœurs", "4"}, {"Fréquence", "400 à 2300 MHz"}}},
+		{Name: "Mémoire RAM", Icon: "memory", Summary: "4 Go DDR4", Fields: []Field{{"Total", "4,0 Go"}, {"Bottom-Slot 2", "4096 Mo DDR4 SODIMM @ 2133 MHz · Samsung"}}},
+		{Name: "Stockage", Icon: "hard-drive", Summary: "1 disque(s) · 298,1 Go", Fields: []Field{{"sda", "Toshiba MK3261GSYN · HDD · 298,1 Go"}}},
+		{Name: "Batterie", Icon: "battery-half", Summary: "Santé 100 % · 112 cycles", Fields: []Field{{"Charge", "8 % (sur batterie)"}, {"Temps restant", "1:11:57"}, {"Capacité réelle", "28,6 Wh, soit 100 %"}, {"Fabricant", "Hewlett-Packard"}, {"Tension", "16,29 V"}}},
+		{Name: "Cartes réseau", Icon: "wifi", Summary: "2 interface(s) · 1 connectée(s)", Fields: []Field{{"enp1s0", "Realtek RTL8111/8168 · ethernet · connecté"}, {"wlp2s0", "Intel Wireless 3165 · wifi · déconnecté"}}},
+		{Name: "Carte graphique", Icon: "display", Summary: "Intel Skylake GT2 [HD Graphics 520]", Fields: []Field{{"Modèle", "HD Graphics 520"}, {"Pilote", "i915"}}},
+		{Name: "Affichage", Icon: "tv", Summary: "1 écran(s) connecté(s)", Fields: []Field{{"Écran intégré", "connecté 1366x768"}, {"HDMI (HDMI-A-1)", "déconnecté"}, {"VGA (VGA-1)", "déconnecté"}}},
+	}
+}
+
+// captureInventory bas de la fiche : l'inventaire en cartes
+func captureInventory(t *testing.T, dir string) {
+	a := test.NewApp()
+	defer a.Quit()
+	a.Settings().SetTheme(newTheme(true))
+	s := newSession()
+	s.Machine = machineInfo{Vendor: "HP", Product: "ProBook 450 G3", Serial: "5CD70729PR"}
+	s.Inventory = demoInventory()
+	f := newFichePanel(s)
+	w := test.NewWindow(f.root)
+	w.Resize(fyne.NewSize(600, 1000))
+	s.changed()
+	f.scroll.ScrollToBottom()
+	save(t, dir, "sombre-fiche-inventaire", w)
+}
+
+// answerAsk touche le bouton de réponse n de la question affichée
+func answerAsk(v *testView, n int) {
+	var tap func(o fyne.CanvasObject) bool
+	count := 0
+	tap = func(o fyne.CanvasObject) bool {
+		if b, ok := o.(*verdictButton); ok {
+			if count == n {
+				test.Tap(b)
+				return true
+			}
+			count++
+		}
+		if c, ok := o.(*fyne.Container); ok {
+			for _, child := range c.Objects {
+				if tap(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	fyne.DoAndWait(func() { tap(v.askButtons) })
 }

@@ -68,7 +68,7 @@ func runSmart(kind string) func(t *testCtx) result {
 			return result{Status: statusNA, Detail: "Aucun " + kindNames[kind]}
 		}
 		if firstAvailable("smartctl") == "" {
-			t.log("smartctl introuvable : sudo apt install smartmontools")
+			t.log("smartctl introuvable : installer le paquet smartmontools")
 			return result{Status: statusWarn, Detail: "smartctl non installé"}
 		}
 		if os.Geteuid() != 0 {

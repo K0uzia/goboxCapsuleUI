@@ -93,7 +93,7 @@ func testDefs() []*testDef {
 	defs := []*testDef{
 		{ID: "stress", Title: "Stress", Category: catPeripherals, Desc: "Charge CPU 100 % et suivi de la température", Run: runStress},
 		{ID: "ports", Title: "Ports", Category: catPeripherals, Desc: "Détection des branchements USB et vidéo", Run: runPorts},
-		{ID: "son", Title: "Son", Category: catPeripherals, Desc: "Tonalité gauche / droite sur les haut-parleurs", Run: runSound},
+		{ID: "son", Title: "Son", Category: catPeripherals, Desc: "Haut-parleurs, prise casque, micro interne et entrée micro", Run: runSound},
 		{ID: "reseau", Title: "Réseau", Category: catPeripherals, Desc: "Interfaces, DNS et accès internet", Run: runNetwork},
 		{ID: "clavier", Title: "Clavier", Category: catPeripherals, Desc: "Appui sur chaque touche du clavier", Run: runKeyboard},
 		{ID: "souris", Title: "Souris", Category: catPeripherals, Desc: "Clics, défilement et pavé tactile", Run: runMouse},
@@ -116,19 +116,19 @@ func testDefs() []*testDef {
 // ---- Session de reconditionnement ----------------------------------------
 
 type ficheForm struct {
-	Tech       string
-	Aspect     string // Neuf, Occasion, Nul
-	CleanIn    bool
-	CleanOut   bool
-	Paste      string // oui / non
-	Shred      string
-	Charger    string
-	CMOS       string
-	DVD        string // oui / non / absent
-	USBBad     string
-	OtherVideo string
-	Other      string
-	Notes      string
+	Tech     string
+	Aspect   string // Neuf, Occasion, Nul
+	CleanIn  bool
+	CleanOut bool
+	Paste    string // oui / non
+	Shred    string
+	Charger  string
+	CMOS     string
+	DVD      string // oui / non / absent
+	USBBad   string
+	Checks   map[string]status // contrôles saisis à la main (ctrlItem.Label)
+	Texts    map[string]string // précisions des lignes « Autre »
+	Notes    string
 }
 
 type session struct {
@@ -151,6 +151,7 @@ func newSession() *session {
 		Form: ficheForm{
 			Aspect: "Occasion", Paste: "non", Shred: "non", Charger: "oui",
 			CMOS: "non", DVD: "absent", USBBad: "0",
+			Checks: map[string]status{}, Texts: map[string]string{},
 		},
 		Tests:   testDefs(),
 		Results: map[string]result{},
@@ -226,19 +227,31 @@ func (v verdict) roles() (ink, fill fyne.ThemeColorName) {
 	return cMuted, cSurface2
 }
 
-// verdict même règle que la maquette : >1 échec = non apte, réserve = grade B
+// verdict même règle que la maquette : >1 échec = non apte, réserve = grade
+// B. Les tests sans objet (composant absent) ne comptent pas dans le total.
 func (s *session) verdict() verdict {
 	done, ok, warn, fail := s.counts()
 	total := len(s.Tests)
+	applicable := total - (done - ok - warn - fail) // sans les absents
 	switch {
 	case done < total:
 		return verdict{"En cours", fmt.Sprintf("%d test(s) restant(s)", total-done), verdictPending}
 	case fail > 1:
 		return verdict{"Non apte", fmt.Sprintf("%d tests en échec", fail), verdictBad}
 	case fail+warn > 0:
-		return verdict{"Apte à la vente", fmt.Sprintf("Grade B · %d / %d OK", ok, total), verdictOK}
+		return verdict{"Apte à la vente", fmt.Sprintf("Grade B · %d / %d OK", ok, applicable), verdictOK}
 	}
-	return verdict{"Apte à la vente", fmt.Sprintf("Grade A · %d / %d OK", ok, total), verdictOK}
+	return verdict{"Apte à la vente", fmt.Sprintf("Grade A · %d / %d OK", ok, applicable), verdictOK}
+}
+
+// markAbsent inscrit « absent » pour les tests dont le composant n'existe
+// pas sur cette machine (sans écraser un résultat déjà confirmé)
+func (s *session) markAbsent(absent map[string]string) {
+	for id, reason := range absent {
+		if _, done := s.Results[id]; !done {
+			s.Results[id] = result{Status: statusNA, Detail: reason + " (détection automatique)", Data: map[string]string{"auto": "1"}}
+		}
+	}
 }
 
 // elapsed durée du reconditionnement depuis l'ouverture

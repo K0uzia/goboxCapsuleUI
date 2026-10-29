@@ -7,8 +7,10 @@ import (
 )
 
 type MemoryInfo struct {
-	Slots   []MemorySlot
-	TotalMB int
+	Slots      []MemorySlot // barrettes installées
+	EmptySlots []string     // emplacements sans barrette (Locator)
+	SlotCount  int          // emplacements de la carte mère (« Number Of Devices »)
+	TotalMB    int
 }
 
 type MemorySlot struct {
@@ -58,38 +60,79 @@ func parseIntField(line, prefix string, field *int, mult int, suffixes ...string
 }
 
 func GetMemoryInfo() (MemoryInfo, error) {
-	cmd := exec.Command("dmidecode", "-t", "memory")
-	out, err := cmd.Output()
+	out, err := exec.Command("dmidecode", "-t", "memory").Output()
 	if err != nil {
 		return MemoryInfo{}, err
 	}
-	slots := parseDMIDecodeOutput(out)
-
-	total := 0
-	for _, s := range slots {
-		total += s.SizeMB
-	}
-
-	return MemoryInfo{
-		Slots:   slots,
-		TotalMB: total,
-	}, nil
+	return parseMemory(out), nil
 }
 
-func parseDMIDecodeOutput(data []byte) []MemorySlot {
+// parseSizeMB taille d'une barrette en Mo : « 16 GiB » (dmidecode ≥ 3.5),
+// « 8192 MB » (versions plus anciennes) ; 0 si pas de barrette
+func parseSizeMB(v string) int {
+	f := strings.Fields(v)
+	if len(f) != 2 {
+		return 0
+	}
+	n, err := strconv.Atoi(f[0])
+	if err != nil {
+		return 0
+	}
+	switch f[1] {
+	case "TB", "TiB":
+		return n * 1024 * 1024
+	case "GB", "GiB":
+		return n * 1024
+	case "MB", "MiB":
+		return n
+	case "kB", "KB", "KiB":
+		return n / 1024
+	}
+	return 0
+}
+
+func parseMemory(data []byte) MemoryInfo {
+	var info MemoryInfo
 	seen := map[string]bool{}
-	var slots []MemorySlot
 	var slot MemorySlot
+	inDevice, empty := false, false
 
-	for line := range strings.SplitSeq(string(data), "\n") {
+	flush := func() {
+		if !inDevice || seen[slot.Slot] {
+			return
+		}
+		seen[slot.Slot] = true
+		if slot.SizeMB > 0 {
+			info.Slots = append(info.Slots, slot)
+			info.TotalMB += slot.SizeMB
+		} else if empty {
+			info.EmptySlots = append(info.EmptySlots, slot.Slot)
+		}
+	}
 
+	for line := range strings.SplitSeq(string(data)+"\n", "\n") {
 		line = strings.TrimSpace(line)
-
-		if line == "Memory Device" {
-			slot = MemorySlot{}
+		switch {
+		case line == "Memory Device":
+			slot, inDevice, empty = MemorySlot{}, true, false
+			continue
+		case line == "":
+			flush()
+			inDevice = false
 			continue
 		}
-
+		if v, ok := strings.CutPrefix(line, "Number Of Devices:"); ok {
+			n, _ := strconv.Atoi(strings.TrimSpace(v))
+			info.SlotCount += n
+		}
+		if !inDevice {
+			continue
+		}
+		if v, ok := strings.CutPrefix(line, "Size:"); ok {
+			v = strings.TrimSpace(v)
+			slot.SizeMB = parseSizeMB(v)
+			empty = strings.Contains(v, "No Module")
+		}
 		cutPrefixString(line, "Locator:", &slot.Slot)
 		cutPrefixString(line, "Type:", &slot.Type)
 		cutPrefixString(line, "Manufacturer:", &slot.Manufacturer)
@@ -97,21 +140,13 @@ func parseDMIDecodeOutput(data []byte) []MemorySlot {
 		cutPrefixString(line, "Bank Locator:", &slot.BankLocator)
 		cutPrefixString(line, "Form Factor:", &slot.FormFactor)
 		cutPrefixString(line, "Type Detail:", &slot.TypeDetail)
-		cutPrefixString(line, "Serial Number:", &slot.SerialNumber)
 		cutPrefixString(line, "Part Number:", &slot.PartNumber)
 		cutPrefixString(line, "Asset Tag:", &slot.AssetTag)
 		cutPrefixString(line, "Memory Technology:", &slot.Technology)
 		cutPrefixString(line, "Memory Operating Mode Capability:", &slot.OperatingMode)
-
-		parseIntField(line, "Size:", &slot.SizeMB, 1024, "GB", "MB")
 		parseIntField(line, "Speed:", &slot.Speed, 1, "MT/s", "MHz")
 		parseIntField(line, "Configured Memory Speed:", &slot.ConfiguredSpeed, 1, "MT/s", "MHz")
-
-		if slot.SizeMB > 0 && line == "" && !seen[slot.Slot] {
-			slots = append(slots, slot)
-			seen[slot.Slot] = true
-		}
+		parseIntField(line, "Rank:", &slot.Rank, 1)
 	}
-
-	return slots
+	return info
 }

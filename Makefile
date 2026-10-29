@@ -1,4 +1,4 @@
-.PHONY: help deps deps-system deps-go deps-mod update run dev dev-user build fmt vet test check clean
+.PHONY: help deps deps-system deps-go deps-mod update run dev dev-build dev-user build fmt vet test check clean
 
 # ---- Configuration ---------------------------------------------------------
 
@@ -50,8 +50,8 @@ else
   # Utilise le go du PATH, sinon celui de /usr/local/go
   GO          := $(shell command -v go 2>/dev/null || echo /usr/local/go/bin/go)
 
-  # Fyne : X11 seul par défaut (Linux Mint). `make GO_TAGS=` compile X11 + Wayland
-  # (nécessite libwayland-dev et libxkbcommon-dev, installés par `make deps`).
+  # Fyne : X11 seul par défaut (sous GNOME Wayland, passe par Xwayland).
+  # `make GO_TAGS=` compile X11 + Wayland (en-têtes Wayland installés par `make deps`).
   GO_TAGS     ?= x11
 
   MKDIR_BUILD := mkdir -p $(BUILD_DIR)
@@ -73,11 +73,23 @@ endif
 
 # ---- Installation ----------------------------------------------------------
 
-# Outils système appelés par les sondes (lspci, dmidecode, xrandr, stress-ng)
-# + compilateur C et bibliothèques OpenGL/X11 pour l'interface graphique (Fyne)
+# Outils système appelés par les sondes (lspci, dmidecode, stress-ng)
+# + compilateur C et bibliothèques OpenGL/X11 pour l'interface graphique (Fyne).
+# Linux : le gestionnaire de paquets est détecté, dnf (Rocky/RHEL/Fedora) ou
+# apt (Debian/Mint). xrandr n'existe plus dans les dépôts RHEL 10.
+DNF_PACKAGES := curl pciutils dmidecode stress-ng \
+                gcc pkgconf-pkg-config mesa-libGL-devel mesa-libEGL-devel \
+                libX11-devel libXext-devel libXcursor-devel libXrandr-devel \
+                libXinerama-devel libXi-devel libXxf86vm-devel \
+                wayland-devel libxkbcommon-devel
 APT_PACKAGES := curl pciutils dmidecode x11-xserver-utils stress-ng \
                 gcc pkg-config libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev \
                 xorg-dev libwayland-dev libxkbcommon-dev
+
+ifeq ($(PLATFORM),linux)
+  PKG_MGR := $(shell command -v dnf >/dev/null 2>&1 && echo dnf || \
+                     (command -v apt-get >/dev/null 2>&1 && echo apt))
+endif
 
 # Windows : Fyne a seulement besoin d'un compilateur C (MinGW-w64 via winget)
 WINGET_GCC := BrechtSanders.WinLibs.POSIX.UCRT
@@ -86,17 +98,22 @@ deps: deps-system deps-go deps-mod ## Installe TOUT ce dont le projet a besoin
 ifeq ($(PLATFORM),windows)
 	@Write-Host "`nOK : dépendances installées. Ouvre un nouveau terminal (PATH) puis lance 'make dev'."
 else
-	@echo "\nOK : dépendances installées. Lance 'make dev'."
-	@command -v go >/dev/null || \
-		echo "Astuce : ajoute 'export PATH=\$$PATH:/usr/local/go/bin' à ~/.bashrc pour utiliser go directement"
+	@printf "\nOK : dépendances installées. Lance 'make dev'.\n"
 endif
 
-deps-system: ## Installe les outils système (apt / winget)
+deps-system: ## Installe les outils système (dnf / apt / winget)
 ifeq ($(PLATFORM),windows)
 	@if ((Get-Command gcc -ErrorAction SilentlyContinue) -or '$(GCC_DIR)') { 'gcc déjà installé' } else { winget install -e --id $(WINGET_GCC) --accept-source-agreements --accept-package-agreements; if ($$LASTEXITCODE) { exit $$LASTEXITCODE } }
-else
+else ifeq ($(PKG_MGR),dnf)
+# libXxf86vm-devel est dans le dépôt CRB, désactivé par défaut sur Rocky
+	sudo dnf install -y dnf-plugins-core
+	sudo dnf config-manager --set-enabled crb
+	sudo dnf install -y $(DNF_PACKAGES)
+else ifeq ($(PKG_MGR),apt)
 	sudo apt-get update
 	sudo apt-get install -y $(APT_PACKAGES)
+else
+	$(error Aucun gestionnaire de paquets supporté (dnf ou apt-get) trouvé)
 endif
 
 deps-go: ## Installe Go $(GO_VERSION) si absent ou mauvaise version
@@ -112,6 +129,13 @@ else
 		sudo tar -C /usr/local -xzf /tmp/$(GO_TARBALL) && \
 		rm -f /tmp/$(GO_TARBALL); \
 	fi
+	@# Ajoute /usr/local/go/bin au PATH (bash, et zsh s'il est utilisé), une seule fois
+	@for rc in $(HOME)/.bashrc $(HOME)/.zshrc; do \
+		[ "$$rc" = "$(HOME)/.bashrc" ] || [ -f "$$rc" ] || continue; \
+		grep -qs '/usr/local/go/bin' "$$rc" && continue; \
+		printf '\n# Go (ajouté par make deps)\nexport PATH=$$PATH:/usr/local/go/bin\n' >> "$$rc"; \
+		echo "PATH de Go ajouté à $$rc (ouvre un nouveau terminal ou fais : source $$rc)"; \
+	done
 endif
 
 deps-mod: ## Télécharge les modules Go (go.mod)
@@ -124,21 +148,36 @@ update: ## Met à jour toutes les dépendances Go vers leur dernière version
 
 # ---- Développement ---------------------------------------------------------
 
-# go run compile dans un dossier temporaire (pas de fichier dans build/) puis
-# lance via sudo en gardant l'accès à l'écran (DISPLAY / XAUTHORITY)
+# Linux : compile dans le cache utilisateur (pas de fichier dans build/) avec
+# un indicateur de progression (la 1re compilation de Fyne/CGO prend plusieurs
+# minutes), puis lance via sudo en gardant l'accès à l'écran.
+DEV_BIN  := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/gobox/gobox-dev
 XAUTH    := $(or $(XAUTHORITY),$(HOME)/.Xauthority)
-SUDO_GUI := sudo env DISPLAY=$(DISPLAY) XAUTHORITY=$(XAUTH)
+SUDO_GUI := sudo env DISPLAY=$(DISPLAY) XAUTHORITY=$(XAUTH) \
+            WAYLAND_DISPLAY=$(WAYLAND_DISPLAY) XDG_RUNTIME_DIR=$(XDG_RUNTIME_DIR)
 
-dev run: ## Lance l'application sans build (sudo sous Linux pour lire dmidecode...)
+dev-build:
+ifeq ($(PLATFORM),linux)
+	@mkdir -p $(dir $(DEV_BIN))
+	@scripts/progress.sh "Compilation" $(GO) build -v $(TAGS) -o $(DEV_BIN) $(MAIN_PKG)
+endif
+
+dev run: dev-build ## Compile (avec progression) puis lance l'application (sudo sous Linux pour lire dmidecode...)
 ifeq ($(PLATFORM),windows)
 	@Write-Host 'Compilation... (la 1re fois, Fyne/OpenGL via gcc peut prendre 2-3 min)'
 	$(GO) run $(TAGS) $(MAIN_PKG)
 else
-	$(GO) run $(TAGS) -exec "$(SUDO_GUI)" $(MAIN_PKG)
+	@echo "Lancement de $(APP) (sudo)..."
+	@$(SUDO_GUI) $(DEV_BIN)
 endif
 
-dev-user: ## Lance l'application sans sudo (détails RAM indisponibles)
+dev-user: dev-build ## Idem sans sudo (détails RAM indisponibles)
+ifeq ($(PLATFORM),windows)
 	$(GO) run $(TAGS) $(MAIN_PKG)
+else
+	@echo "Lancement de $(APP)..."
+	@GOBOX_NO_ELEVATE=1 $(DEV_BIN)
+endif
 
 # ---- Build -----------------------------------------------------------------
 

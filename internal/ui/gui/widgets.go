@@ -504,3 +504,141 @@ func mutedNote(s string) *widget.Label {
 	l.SizeName = theme.SizeNameCaptionText
 	return l
 }
+
+// ---- Bouton de verdict ----------------------------------------------------
+
+// verdictButton bouton de validation d'un test : couleur, icône et sens du
+// statut qu'il inscrit (OK vert, Moyen orange, Nul rouge, Absent gris).
+// Sélectionné, il est plein ; sinon seul son contour est coloré.
+type verdictButton struct {
+	*tapArea
+	st       status
+	bg       *tRect
+	label    *tText
+	sub      *tText
+	icon     *widget.Icon
+	selected bool
+}
+
+// verdictMeaning sens d'un statut, sous le libellé du bouton
+var verdictMeaning = map[status]string{
+	statusOK: "Fonctionne", statusWarn: "Avec réserve", statusFail: "Défectueux", statusNA: "Sans objet",
+}
+
+var verdictIcons = map[status]string{
+	statusOK: "circle-check", statusWarn: "triangle-exclamation", statusFail: "circle-xmark", statusNA: "circle-minus",
+}
+
+func newVerdictButton(c choice, onTap func()) *verdictButton {
+	b := &verdictButton{st: c.Status, bg: newRect(cSurface, cLine, 8), label: text(c.Label, 15, true, cText), sub: text(verdictMeaning[c.Status], 11, false, cMuted), icon: widget.NewIcon(nil)}
+	b.bg.MinSz = fyne.NewSize(0, 52)
+	b.bg.StrokeWidth = 1.5
+	words := container.NewVBox(layout.NewSpacer(), b.label, b.sub, layout.NewSpacer())
+	b.tapArea = newTapArea(container.NewStack(b.bg, container.New(&padLayout{h: 12, v: 6},
+		container.NewBorder(nil, nil, container.NewHBox(sized(b.icon, 22), container.New(&padLayout{h: 1})), nil, words))), onTap)
+	b.onState = func(bool, bool) { b.paint() }
+	b.paint()
+	return b
+}
+
+func (b *verdictButton) setSelected(v bool) {
+	b.selected = v
+	b.paint()
+}
+
+func (b *verdictButton) paint() {
+	ink, soft := cAccent, cAccentSoft
+	if b.st != statusRunning && b.st != statusIdle {
+		st := b.st.style()
+		ink, soft = st.ink, st.soft
+	}
+	fill, stroke, fg := cSurface, ink, ink
+	switch {
+	case b.selected:
+		fill = soft
+	case b.hover:
+		fill = soft
+	}
+	b.bg.StrokeWidth = 1.5
+	if b.selected || b.focus {
+		b.bg.StrokeWidth = 3
+	}
+	b.bg.setRoles(fill, stroke)
+	b.label.Role = fg
+	b.label.Refresh()
+	b.sub.Hidden = b.sub.Text == ""
+	b.sub.Refresh()
+	if ico := verdictIcons[b.st]; ico != "" {
+		b.icon.SetResource(coloredIcon(ico, ink))
+	} else {
+		b.icon.SetResource(coloredIcon("arrows-rotate", ink))
+	}
+}
+
+// verdictRow boutons de verdict côte à côte, sur plusieurs lignes au besoin
+func verdictRow(buttons []fyne.CanvasObject) fyne.CanvasObject {
+	return container.New(&respGrid{minCol: 120, cols: []int{len(buttons), 2, 1}, gap: 8}, buttons...)
+}
+
+// ---- Choix compact --------------------------------------------------------
+
+// choiceBar petit choix exclusif sur une ligne de la fiche (OK / Moyen / Nul,
+// oui / non). Un clic sur le choix déjà fait l'annule si allowNone.
+type choiceBar struct {
+	root      fyne.CanvasObject
+	Selected  string
+	items     map[string]*segItem
+	roles     func(opt string) (soft, ink fyne.ThemeColorName)
+	allowNone bool
+	onChange  func(string)
+}
+
+func newChoiceBar(opts []string, selected string, allowNone bool, roles func(string) (fyne.ThemeColorName, fyne.ThemeColorName), onChange func(string)) *choiceBar {
+	c := &choiceBar{Selected: selected, items: map[string]*segItem{}, roles: roles, allowNone: allowNone, onChange: onChange}
+	objs := make([]fyne.CanvasObject, len(opts))
+	for i, o := range opts {
+		it := &segItem{bg: newRect(cSurface, cLine, 6), label: text(o, 12, false, cMuted)}
+		it.bg.MinSz = fyne.NewSize(50, 28)
+		it.label.Alignment = fyne.TextAlignCenter
+		it.tap = newTapArea(container.NewStack(it.bg, container.NewCenter(it.label)), func() { c.set(o) })
+		it.tap.onState = func(bool, bool) { c.paint() }
+		c.items[o] = it
+		objs[i] = it.tap
+	}
+	c.root = container.NewGridWithColumns(len(opts), objs...)
+	c.paint()
+	return c
+}
+
+func (c *choiceBar) set(v string) {
+	if v == c.Selected && c.allowNone {
+		v = ""
+	}
+	c.Selected = v
+	c.paint()
+	if c.onChange != nil {
+		c.onChange(v)
+	}
+}
+
+func (c *choiceBar) paint() {
+	for v, it := range c.items {
+		fill, stroke, fg, bold := cSurface, cLine, cMuted, false
+		if v == c.Selected {
+			soft, ink := cAccentSoft, cAccent
+			if c.roles != nil {
+				soft, ink = c.roles(v)
+			}
+			fill, stroke, fg, bold = soft, ink, ink, true
+		} else if it.tap.hover {
+			fill, stroke, fg = cSurface2, cBorder, cText
+		}
+		it.bg.StrokeWidth = 1
+		if it.tap.focus {
+			stroke, it.bg.StrokeWidth = cAccent, 2
+		}
+		it.bg.setRoles(fill, stroke)
+		it.label.Role, it.label.Bold = fg, bold
+		it.label.Refresh()
+	}
+}

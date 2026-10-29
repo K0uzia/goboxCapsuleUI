@@ -1,13 +1,16 @@
 package gui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/widget"
 )
 
 // keyDef touche identifiée par son code physique X11 (indépendant de la
@@ -46,6 +49,7 @@ func runKeyboard(t *testCtx) result {
 	caps := map[int]*keyCap{}
 	total := 0
 	var counter *tText
+	var trap *keyTrap
 
 	relabel := func() {
 		for _, c := range caps {
@@ -77,12 +81,19 @@ func runKeyboard(t *testCtx) result {
 		relabel()
 		counter = text(fmt.Sprintf("0 / %d touches", total), 13, true, cText)
 		toggle := secondaryButton("AZERTY / QWERTY", nil, func() { azerty = !azerty; relabel() })
-		return container.NewVBox(container.NewBorder(nil, nil, counter, toggle), rows)
+		trap = newKeyTrap(t.win.Canvas())
+		return container.NewVBox(container.NewBorder(nil, nil, counter, toggle), rows, trap)
 	})
 
-	// Capture des touches sur toute la fenêtre
+	// La touche Windows ouvre le menu du bureau avant d'arriver à gobox :
+	// raccourci du bureau suspendu le temps du test
+	restoreSuper := suspendSuperKey(t)
+	defer restoreSuper()
+
+	// Capture des touches sur toute la fenêtre ; le piège garde le focus pour
+	// que Tab ne le déplace pas sur un bouton
 	t.ui(func() {
-		t.win.Canvas().Unfocus()
+		t.win.Canvas().Focus(trap)
 		if dc, ok := t.win.Canvas().(desktop.Canvas); ok {
 			dc.SetOnKeyDown(func(ev *fyne.KeyEvent) {
 				c, ok := caps[ev.Physical.ScanCode]
@@ -99,6 +110,7 @@ func runKeyboard(t *testCtx) result {
 		}
 	})
 	defer t.ui(func() {
+		trap.active = false
 		if dc, ok := t.win.Canvas().(desktop.Canvas); ok {
 			dc.SetOnKeyDown(nil)
 		}
@@ -120,13 +132,22 @@ func runKeyboard(t *testCtx) result {
 	return result{Status: statusFail, Detail: fmt.Sprintf("%d / %d touches détectées", n, total)}
 }
 
-// detectAzerty lit la disposition système (Debian / Mint)
+// detectAzerty lit la disposition système : Debian / Mint
+// (/etc/default/keyboard), Rocky / Fedora (xorg.conf.d, vconsole.conf)
 func detectAzerty() bool {
-	b, err := os.ReadFile("/etc/default/keyboard")
-	if err != nil {
-		return true
+	for _, f := range []string{"/etc/default/keyboard", "/etc/X11/xorg.conf.d/00-keyboard.conf", "/etc/vconsole.conf"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		c := strings.ToLower(string(b))
+		for _, line := range strings.Split(c, "\n") {
+			if strings.Contains(line, "xkblayout") || strings.Contains(line, "keymap") {
+				return strings.Contains(line, `"fr`) || strings.Contains(line, `"be`)
+			}
+		}
 	}
-	return strings.Contains(string(b), `XKBLAYOUT="fr`) || strings.Contains(string(b), `XKBLAYOUT="be`)
+	return true
 }
 
 // flexRowLayout répartit la largeur selon des poids (touches larges)
@@ -155,5 +176,91 @@ func (l *flexRowLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
 		o.Resize(fyne.NewSize(w, size.Height))
 		o.Move(fyne.NewPos(x, 0))
 		x += w + l.gap
+	}
+}
+
+// keyTrap élément invisible qui garde le focus pendant le test clavier : il
+// accepte Tab (sinon Fyne passe au bouton suivant) et reprend le focus si un
+// clic le lui retire
+type keyTrap struct {
+	widget.BaseWidget
+	canvas fyne.Canvas
+	active bool
+}
+
+func newKeyTrap(c fyne.Canvas) *keyTrap {
+	k := &keyTrap{canvas: c, active: true}
+	k.ExtendBaseWidget(k)
+	return k
+}
+
+func (k *keyTrap) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(container.NewWithoutLayout())
+}
+func (k *keyTrap) AcceptsTab() bool        { return true }
+func (k *keyTrap) FocusGained()            {}
+func (k *keyTrap) TypedRune(rune)          {}
+func (k *keyTrap) TypedKey(*fyne.KeyEvent) {}
+func (k *keyTrap) FocusLost() {
+	if k.active {
+		go fyne.Do(func() {
+			if k.active {
+				k.canvas.Focus(k)
+			}
+		})
+	}
+}
+
+// superKeySettings réglages du bureau qui donnent la touche Windows au menu
+var superKeySettings = [][2]string{
+	{"org.gnome.mutter", "overlay-key"},    // GNOME (Rocky)
+	{"org.cinnamon.muffin", "overlay-key"}, // Cinnamon (Mint)
+}
+
+// manageSuperKey faux dans les tests automatiques : ne touche pas au bureau
+var manageSuperKey = true
+
+var (
+	superMu      sync.Mutex
+	superRestore []func()
+)
+
+// suspendSuperKey retire la touche Windows au bureau ; la fonction rendue la
+// lui redonne (aussi appelée à la fermeture de gobox, voir restoreSuperKey)
+func suspendSuperKey(t *testCtx) func() {
+	if simulated || !manageSuperKey {
+		return func() {}
+	}
+	var undo []func()
+	for _, kv := range superKeySettings {
+		out, err := userCommand(t.ctx, "gsettings", "get", kv[0], kv[1]).Output()
+		if err != nil {
+			continue // réglage absent sur ce bureau
+		}
+		old := strings.Trim(strings.TrimSpace(string(out)), "'")
+		if old == "" {
+			continue
+		}
+		if err := userCommand(context.Background(), "gsettings", "set", kv[0], kv[1], "").Run(); err != nil {
+			t.log("Touche Windows : réglage %s non modifiable (%v)", kv[0], err)
+			continue
+		}
+		t.log("Touche Windows retirée au menu du bureau pendant le test")
+		undo = append(undo, func() { _ = userCommand(context.Background(), "gsettings", "set", kv[0], kv[1], old).Run() })
+	}
+	superMu.Lock()
+	superRestore = append(superRestore, undo...)
+	superMu.Unlock()
+	return restoreSuperKey
+}
+
+// restoreSuperKey redonne la touche Windows au bureau
+func restoreSuperKey() {
+	superMu.Lock()
+	undo := superRestore
+	superRestore = nil
+	superMu.Unlock()
+	for _, f := range undo {
+		f()
 	}
 }

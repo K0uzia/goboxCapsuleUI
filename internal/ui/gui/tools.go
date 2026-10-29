@@ -224,6 +224,7 @@ type testView struct {
 	resultMeta      *tText
 	resultAdvice    *fyne.Container
 	adviceList      *fyne.Container
+	resultChoices   []*verdictButton
 	finished        *fyne.Container // boutons après le test
 	body            *fyne.Container
 }
@@ -253,7 +254,7 @@ func newTestView(p *toolsPanel) *testView {
 	v.panel = container.NewStack()
 	v.askLabel = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	v.askLabel.Wrapping = fyne.TextWrapWord
-	v.askButtons = container.NewHBox()
+	v.askButtons = container.NewStack()
 
 	logBox := v.newLog()
 
@@ -267,13 +268,23 @@ func newTestView(p *toolsPanel) *testView {
 		v.adviceList,
 	)))
 	v.resultBg = newRect(cSurface2, cLine, 8)
+	// verdict inscrit dans la fiche : celui du test, modifiable avant de
+	// confirmer (le technicien a le dernier mot)
+	var choiceObjs []fyne.CanvasObject
+	for _, c := range append(verdictChoices, choice{"Absent", statusNA}) {
+		b := newVerdictButton(c, func() { v.pickVerdict(c.Status) })
+		v.resultChoices = append(v.resultChoices, b)
+		choiceObjs = append(choiceObjs, b)
+	}
 	v.resultBox = container.NewVBox(
 		container.NewStack(v.resultBg, container.New(&padLayout{h: 14, v: 10}, container.NewVBox(
 			container.NewHBox(container.NewCenter(v.resultPill.root), v.resultHead),
 			v.resultDetail, v.resultMeta,
 		))),
 		v.resultAdvice,
-		text("La confirmation inscrit le résultat dans la fiche.", 12, false, cMuted),
+		caption("Verdict inscrit dans la fiche"),
+		verdictRow(choiceObjs),
+		text("Modifiable avant de confirmer. Entrée confirme.", 12, false, cMuted),
 	)
 
 	v.running = container.NewHBox(layout.NewSpacer(),
@@ -441,8 +452,12 @@ func (v *testView) setAsk(prompt string, opts []choice, answer func(status)) {
 	v.askLabel.SetText(prompt)
 	v.askLabel.Hidden = prompt == ""
 	v.askButtons.RemoveAll()
-	for _, o := range opts {
-		v.askButtons.Add(secondaryButton(o.Label, nil, func() { answer(o.Status) }))
+	if len(opts) > 0 {
+		var objs []fyne.CanvasObject
+		for _, o := range opts {
+			objs = append(objs, newVerdictButton(o, func() { answer(o.Status) }))
+		}
+		v.askButtons.Add(verdictRow(objs))
 	}
 	v.askButtons.Refresh()
 	v.askLabel.Refresh()
@@ -451,15 +466,28 @@ func (v *testView) setAsk(prompt string, opts []choice, answer func(status)) {
 	}
 }
 
+// pickVerdict change le verdict qui sera inscrit dans la fiche
+func (v *testView) pickVerdict(s status) {
+	v.p.pending.Status = s
+	v.paintVerdict(s)
+}
+
+func (v *testView) paintVerdict(s status) {
+	headlines := map[status]string{statusOK: "Test réussi", statusWarn: "Réussi avec réserve", statusFail: "Test échoué", statusNA: "Absent ou non testable sur cette machine"}
+	st := s.style()
+	v.resultPill.set(s)
+	v.resultBg.setRoles(st.soft, st.ink)
+	v.resultHead.Text, v.resultHead.Role = headlines[s], st.ink
+	v.resultHead.Refresh()
+	for _, b := range v.resultChoices {
+		b.setSelected(b.st == s)
+	}
+}
+
 func (v *testView) showResult(r result) {
 	v.setProgress(1)
 	v.setAsk("", nil, nil)
-	headlines := map[status]string{statusOK: "Test réussi", statusWarn: "Réussi avec réserve", statusFail: "Test échoué", statusNA: "Non applicable sur cette machine"}
-	st := r.Status.style()
-	v.resultPill.set(r.Status)
-	v.resultBg.setRoles(st.soft, st.ink)
-	v.resultHead.Text, v.resultHead.Role = headlines[r.Status], st.ink
-	v.resultHead.Refresh()
+	v.paintVerdict(r.Status)
 	v.resultDetail.SetText(r.Detail)
 	v.resultDetail.Hidden = r.Detail == ""
 	v.adviceList.RemoveAll()

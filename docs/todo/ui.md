@@ -32,11 +32,24 @@ Captures sans ouvrir de fenêtre : `GOBOX_CAPTURES=<dossier> go test -run TestCa
 - [x] Avancement par catégorie (« 3 / 8 faits ») et icône de statut sur chaque bouton de test
 - [x] « Détail des tests » dans Réglages (plus de pied de fiche)
 - [x] Test automatisé du parcours bouton → résultat → confirmation (`tools_test.go`)
+- [x] Fiche à l'écran et fiche imprimée dans l'ordre de la fiche papier de l'atelier (contrôles cochés, températures < 90 °C, maintenance oui / non, inventaire par sections)
+- [x] Contrôles sans test gobox (sortie audio, micros, « Autre ») saisis par le technicien en OK / Moyen / Nul
+- [x] Tests sans objet marqués « absent » au démarrage d'après le matériel détecté (webcam, lecteur SD, carte son, HDD / SSD / NVMe), sans compter dans le total du verdict
+- [x] Boutons de verdict colorés et explicites (OK, Moyen, Nul, Absent), verdict modifiable sur l'écran de résultat avant confirmation
+- [x] Ports : « testés / détectés » par type (USB physiques, HDMI, DisplayPort, VGA, DVI), port déjà occupé compté comme testé
+- [x] Souris : 6 actions à valider (déplacement, 3 clics dont la molette, molette haut / bas), cases qui passent au vert
+- [x] Son en 4 étapes (haut-parleurs, prise casque, micro interne, entrée micro avec enregistrement, niveau capté et réécoute), chacune reportée sur sa ligne de la fiche ; carte son sans pilote signalée au lieu d'un silence
+- [x] Test clavier : Tab ne fait plus sortir du test (piège à focus), touche Windows retirée au menu du bureau pendant le test puis rendue (GNOME, Cinnamon)
+- [x] Droits administrateur : lancé sans, gobox se relance par pkexec (mot de passe du système) ; refusé, il continue en « Mode limité » signalé dans l'en-tête ; la cause exacte s'affiche quand la RAM n'est pas lue
+- [x] Fiche imprimée : « absent » à la place des cases, cases de température alignées, pas de signature (absente de la fiche papier)
+- [x] Stress test : courbes continues avec aire, seuils étiquetés, axe du temps et dernière valeur
+- [x] Inventaire en cartes : icône, résumé, valeurs (machine, CPU, RAM, stockage, batterie, réseau, carte graphique, affichage)
+- [x] Détail des tests désactivé par défaut (Réglages)
+- [x] Impression : ouverture par xdg-open, puis gio, puis Firefox ; en cas d'échec, chemin du fichier à copier et erreur affichée
 
 ## À faire
 
 - [ ] Autres paramètres par défaut des Réglages (à définir ensemble)
-- [ ] Fiche A4 imprimée (`print.go`) : comparer avec la maquette `Fiche.dc.html` et l'aligner sur le thème
 - [ ] Bouton **Shred** (voir [shred-secmet.md](shred-secmet.md))
 - [ ] Icône d'application + `.desktop`
 - [ ] Vérifier sur le poste Linux de l'atelier (rendu OpenGL réel, sondes branchées)

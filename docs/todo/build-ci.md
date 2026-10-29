@@ -2,10 +2,10 @@
 
 ## Fait
 
-- [x] `make deps` : outils système (apt), Go 1.25.2, modules
-- [x] `make dev` : `go run` sans fichier dans `build/`, lancé en sudo avec accès à l'écran
+- [x] `make deps` : outils système (dnf ou apt), Go 1.25.2, modules
+- [x] `make dev` : compilation avec indicateur de progression (`scripts/progress.sh`), sans fichier dans `build/`, lancé en sudo avec accès à l'écran (X11 et Wayland)
 - [x] `make build`, `make test`, `make vet`, `make fmt`, `make clean`, `make update`
-- [x] Fyne compilé en **X11 seul** par défaut (`GO_TAGS=x11`) : pas besoin des en-têtes Wayland sur Mint
+- [x] Fyne compilé en **X11 seul** par défaut (`GO_TAGS=x11`) : en-têtes Wayland non requis
 
 ## À faire
 

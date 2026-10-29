@@ -244,7 +244,8 @@ func newStressMonitor(nCores int, hasPower bool) *stressMonitor {
 	m.tempChart = newLineChart(30, 100, "°C", cAccent)
 	m.tempChart.Thresholds = []threshold{{stressWarnTemp, cWarning}, {stressFailTemp, cDanger}}
 	m.freqChart = newLineChart(0, 4, "GHz", cInfo)
-	m.freqChart.Height = 90
+	m.freqChart.Height = 100
+	m.freqChart.Format = ghz
 
 	coreObjs := make([]fyne.CanvasObject, nCores)
 	for i := range coreObjs {

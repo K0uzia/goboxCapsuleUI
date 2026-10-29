@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -29,6 +30,9 @@ var steps = []struct {
 // Réglages valables pour la session seulement (image live partagée) : thème
 // sombre à chaque lancement.
 func Run() {
+	if code, done := relaunchAsAdmin(); done {
+		os.Exit(code)
+	}
 	a := app.NewWithID("fr.lacapsule.gobox")
 	a.Settings().SetTheme(newTheme(true))
 	w := a.NewWindow("gobox · Toolbox La Capsule")
@@ -41,25 +45,32 @@ func Run() {
 	// Inventaire en tâche de fond (dmidecode, sysfs… peuvent prendre 1 à 2 s)
 	a.Lifecycle().SetOnStarted(func() {
 		go func() {
-			m, inv := readMachine(), collectInventory()
+			m, inv, absent := readMachine(), collectInventory(), absentHardware()
 			fyne.Do(func() {
 				s.Machine, s.Inventory = m, inv
+				s.markAbsent(absent)
 				s.changed()
 			})
 		}()
 	})
 	w.ShowAndRun()
+	restoreSuperKey() // si gobox est fermé pendant le test clavier
 }
 
 // mainContent contenu de la fenêtre principale : en-tête, fiche, outils,
 // barre d'étapes
 func mainContent(s *session, w fyne.Window) (fyne.CanvasObject, *toolsPanel) {
 	printNow := func() {
-		if path, err := printFiche(s); err != nil {
-			dialog.ShowError(fmt.Errorf("impression de la fiche : %w", err), w)
-		} else {
-			dialog.ShowInformation("Fiche générée", "Fiche ouverte dans le navigateur :\n"+path, w)
+		path, err := writeFiche(s)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("création de la fiche : %w", err), w)
+			return
 		}
+		// l'ouverture attend quelques secondes la réponse du navigateur
+		go func() {
+			err := openInBrowser(path)
+			fyne.Do(func() { showPrinted(w, path, err) })
+		}()
 	}
 	// Fiche incomplète : on demande avant d'imprimer
 	onPrint := func() {
@@ -95,6 +106,25 @@ func mainContent(s *session, w fyne.Window) (fyne.CanvasObject, *toolsPanel) {
 	), tools
 }
 
+// showPrinted fiche générée : ouverte dans le navigateur, ou chemin à ouvrir
+// à la main si aucun navigateur n'a répondu
+func showPrinted(w fyne.Window, path string, err error) {
+	copyPath := secondaryButton("Copier le chemin", buttonIcon("copy"), func() {
+		fyne.CurrentApp().Clipboard().SetContent(path)
+	})
+	pathLabel := wrapLabel(path)
+	pathLabel.TextStyle.Monospace = true
+	title, msg := "Fiche ouverte", "La fiche est ouverte dans le navigateur : imprimez-la ou enregistrez-la en PDF avec Ctrl+P."
+	var extra fyne.CanvasObject = container.NewVBox()
+	if err != nil {
+		title, msg = "Navigateur non ouvert", "La fiche est créée mais aucun navigateur n'a pu l'ouvrir. Ouvrez ce fichier dans un navigateur :"
+		detail := mutedNote(err.Error())
+		extra = detail
+	}
+	content := container.NewVBox(wrapLabel(msg), pathLabel, container.NewHBox(copyPath), extra)
+	dialog.NewCustom(title, "Fermer", container.New(&widthLayout{w: 460}, content), w).Show()
+}
+
 // headerBar bandeau du haut : marque, durée de la session, impression
 func headerBar(s *session, onPrint func()) fyne.CanvasObject {
 	brand := container.NewHBox(
@@ -116,7 +146,13 @@ func headerBar(s *session, onPrint func()) fyne.CanvasObject {
 			time.Sleep(3 * time.Second)
 		}
 	}()
-	right := container.NewHBox(
+	right := container.NewHBox()
+	if !isAdmin() {
+		// sans droits : RAM, SMART et n° de série incomplets
+		limited := text("sans droits admin", 13, true, cWarning)
+		right.Add(chip("triangle-exclamation", "Mode limité", limited))
+	}
+	right.Objects = append(right.Objects,
 		chip("clock", "Durée", chrono),
 		chip("temperature-half", "CPU", cpu),
 		container.New(&padLayout{h: 4}),
