@@ -477,11 +477,15 @@ func TestPopupClosesOnOutsideTap(t *testing.T) {
 	if applied != 0 {
 		t.Errorf("thème réappliqué %d fois à l'ouverture", applied)
 	}
-	if openPopup == nil || !openPopup.Visible() {
+	if openPopup == nil {
 		t.Fatal("réglages non affichés")
 	}
+	test.TapCanvas(w.Canvas(), fyne.NewPos(500, 400)) // dans la fenêtre : reste ouverte
+	if openPopup == nil {
+		t.Fatal("un clic dans la fenêtre ne doit pas la fermer")
+	}
 	test.TapCanvas(w.Canvas(), fyne.NewPos(3, 3))
-	if openPopup.Visible() {
+	if openPopup != nil || len(w.Canvas().Overlays().List()) != 0 {
 		t.Fatal("un clic en dehors doit fermer la fenêtre")
 	}
 }

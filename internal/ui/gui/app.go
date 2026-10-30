@@ -3,11 +3,13 @@ package gui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"os"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
@@ -354,25 +356,51 @@ func showSettings(w fyne.Window, f *fichePanel) {
 // themeApplied observé par les tests
 var themeApplied = func() {}
 
-// openPopup dernière fenêtre ouverte : un clic en dehors la masque (PopUp de Fyne non
-// modal, ce que ses dialogues ne permettent pas), Échap et son bouton aussi
-var openPopup *widget.PopUp
+// popup fenêtre ouverte : fond assombri, et fermeture par un clic sur ce fond, par
+// son bouton ou par Échap. Les dialogues de Fyne n'ont pas le clic extérieur, et ses
+// PopUp non modaux n'assombrissent pas : d'où cette couche.
+type popup struct {
+	canvas fyne.Canvas
+	root   fyne.CanvasObject
+}
+
+var openPopup *popup
 
 func closePopup() {
 	if openPopup != nil {
-		openPopup.Hide()
+		openPopup.canvas.Overlays().Remove(openPopup.root)
+		openPopup = nil
 	}
 }
 
-// showPopup fenêtre centrée, qui se ferme par un clic en dehors
+// tapLayer zone qui reçoit le clic : ferme la fenêtre sur le fond, n'a pas d'effet
+// sur la fenêtre elle-même
+type tapLayer struct {
+	widget.BaseWidget
+	content fyne.CanvasObject
+	onTap   func()
+}
+
+func newTapLayer(content fyne.CanvasObject, onTap func()) *tapLayer {
+	t := &tapLayer{content: content, onTap: onTap}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (t *tapLayer) CreateRenderer() fyne.WidgetRenderer { return widget.NewSimpleRenderer(t.content) }
+func (t *tapLayer) Tapped(*fyne.PointEvent)             { t.onTap() }
+
+// showPopup fenêtre centrée sur un fond assombri
 func showPopup(w fyne.Window, title string, content fyne.CanvasObject) {
 	closePopup()
 	head := container.NewBorder(nil, nil, nil, iconButton(theme.CancelIcon(), closePopup), container.NewCenter(sectionTitle(title)))
-	body := container.New(&padLayout{h: 12, v: 8}, container.New(&widthLayout{w: 460}, container.NewVBox(head, content)))
-	openPopup = widget.NewPopUp(body, w.Canvas())
-	size := openPopup.MinSize()
-	cs := w.Canvas().Size()
-	openPopup.ShowAtPosition(fyne.NewPos((cs.Width-size.Width)/2, max((cs.Height-size.Height)/2, 0)))
+	body := container.New(&padLayout{h: 16, v: 12}, container.New(&widthLayout{w: 460}, container.NewVBox(head, content)))
+	card := newTapLayer(container.NewStack(newRect(cSurface, cLineStrong, 12), body), func() {})
+	dim := canvas.NewRectangle(color.NRGBA{A: 150})
+	root := container.NewStack(newTapLayer(dim, closePopup), container.NewCenter(card))
+	root.Resize(w.Canvas().Size())
+	w.Canvas().Overlays().Add(root)
+	openPopup = &popup{canvas: w.Canvas(), root: root}
 }
 
 // ratioLayout deux colonnes : gauche = left × largeur
