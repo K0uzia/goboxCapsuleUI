@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -171,13 +172,26 @@ func usbReport() string {
 	}
 	sort.Strings(lines)
 	b.WriteString(strings.Join(lines, "\n") + "\n\n")
+	b.WriteString("Périphériques USB :\n" + usbInventory(sysUSB) + "\n")
+	fmt.Fprintf(&b, "Lecteur de puce : %v\nModem : %v\nWi-Fi : %v\nBluetooth : %v\n", cardReaders(), modemNames("/"), wifiInterfaces(sysNet), bluetoothAdapters(sysBluetooth))
+	rf, _ := filepath.Glob(filepath.Join(sysRfkill, "rfkill*"))
+	for _, d := range rf {
+		fmt.Fprintf(&b, "  rfkill %s : soft %s, hard %s\n", readTrim(filepath.Join(d, "type")), readTrim(filepath.Join(d, "soft")), readTrim(filepath.Join(d, "hard")))
+	}
 	if tool := toolPath("lspci"); tool != "" {
 		if out, err := exec.Command(tool).Output(); err == nil {
-			for _, line := range strings.Split(string(out), "\n") {
-				if l := strings.ToLower(line); strings.Contains(l, "usb") || strings.Contains(l, "thunderbolt") {
-					b.WriteString(line + "\n")
-				}
-			}
+			b.WriteString("\nPCI :\n" + string(out))
+		}
+	}
+	conns := videoConnectors()
+	b.WriteString("\nConnecteurs vidéo :\n")
+	for _, c := range conns {
+		fmt.Fprintf(&b, "  %s (%s) connecté %v\n", c.Name, c.Plug, c.Connected)
+	}
+	// Table vidéo Intel : décrit les vraies prises, à analyser quand le BIOS ne les liste pas
+	if vbt, _ := filepath.Glob("/sys/kernel/debug/dri/*/i915_vbt"); len(vbt) > 0 {
+		if data, err := os.ReadFile(vbt[0]); err == nil && len(data) > 0 {
+			fmt.Fprintf(&b, "\nVBT i915 (%d octets, base64) :\n%s\n", len(data), base64.StdEncoding.EncodeToString(data))
 		}
 	}
 	if tool := toolPath("dmidecode"); tool != "" {

@@ -174,7 +174,7 @@ func modemNames(root string) []string {
 			out = append(out, filepath.Base(f))
 		}
 	}
-	return out
+	return append(out, usbModems(filepath.Join(root, "sys/bus/usb/devices"))...)
 }
 
 func simScan(_ context.Context, logf func(string, ...any)) result {
@@ -190,18 +190,70 @@ func simScan(_ context.Context, logf func(string, ...any)) result {
 	return result{Status: statusOK, Detail: "Modem reconnu, carte SIM non testée", Data: map[string]string{"pill": pillDetected}}
 }
 
-// usbCardReaders lecteurs de puce USB (classe d'interface 0b, CCID) : nom du produit
+// usbCardReaders lecteurs de puce USB : classe d'interface 0b (CCID), ou lecteurs des
+// portables qui se déclarent autrement (classe du constructeur), reconnus par leur nom
 func usbCardReaders(root string) []string {
+	seen := map[string]bool{}
 	var out []string
+	add := func(dev string) {
+		if !seen[dev] {
+			seen[dev] = true
+			out = append(out, orUnknown(readTrim(filepath.Join(root, dev, "product")), "Lecteur USB"))
+		}
+	}
 	files, _ := filepath.Glob(filepath.Join(root, "*", "bInterfaceClass"))
 	for _, f := range files {
 		if readTrim(f) == "0b" {
 			// interface 1-4:1.0 : le périphérique est 1-4, à côté d'elle dans root
 			dev, _, _ := strings.Cut(filepath.Base(filepath.Dir(f)), ":")
-			out = append(out, orUnknown(readTrim(filepath.Join(root, dev, "product")), "Lecteur USB"))
+			add(dev)
+		}
+	}
+	products, _ := filepath.Glob(filepath.Join(root, "*", "product"))
+	for _, f := range products {
+		if usbReaderName.MatchString(readTrim(f)) {
+			add(filepath.Base(filepath.Dir(f)))
 		}
 	}
 	return out
+}
+
+var (
+	usbReaderName = regexp.MustCompile(`(?i)smart ?card|\bccid\b|controlvault|\bau9540\b|\bbcm58\d\d`)
+	usbModemName  = regexp.MustCompile(`(?i)\bwwan\b|\blte\b|\bhspa\b|\bgobi\b|\bmbim\b|snapdragon|\bxmm\d|mobile broadband`)
+)
+
+// usbModems modems USB reconnus par leur nom, même sans pilote chargé
+func usbModems(root string) []string {
+	var out []string
+	products, _ := filepath.Glob(filepath.Join(root, "*", "product"))
+	for _, f := range products {
+		if name := readTrim(f); usbModemName.MatchString(name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// usbInventory tout ce qui est branché en USB, pour le diagnostic
+func usbInventory(root string) string {
+	var b strings.Builder
+	devs, _ := filepath.Glob(filepath.Join(root, "*", "idVendor"))
+	for _, f := range devs {
+		d := filepath.Dir(f)
+		classes := map[string]bool{}
+		ifaces, _ := filepath.Glob(filepath.Join(root, filepath.Base(d)+":*", "bInterfaceClass"))
+		for _, i := range ifaces {
+			classes[readTrim(i)] = true
+		}
+		var list []string
+		for c := range classes {
+			list = append(list, c)
+		}
+		fmt.Fprintf(&b, "  %s %s:%s classes %s : %s %s\n", filepath.Base(d), readTrim(filepath.Join(d, "idVendor")), readTrim(filepath.Join(d, "idProduct")),
+			strings.Join(list, ","), readTrim(filepath.Join(d, "manufacturer")), readTrim(filepath.Join(d, "product")))
+	}
+	return b.String()
 }
 
 var pciSmartCard = regexp.MustCompile(`(?i)^\S+\s+(.*smart ?card.*)$`)
@@ -252,5 +304,30 @@ func runScan(scan func(context.Context, func(string, ...any)) result, simulatedD
 			return result{Status: statusOK, Detail: simulatedDetail}
 		}
 		return scan(t.ctx, t.log)
+	}
+}
+
+const pillPresent = "PRÉSENT"
+
+// runSlotScan lecteur de puce ou SIM : un emplacement peut exister sans que le système
+// le voie (SIM sans modem installé, lecteur coupé dans le BIOS). S'il ne le voit pas,
+// le technicien dit ce qu'il a sous les yeux.
+func runSlotScan(what string, scan func(context.Context, func(string, ...any)) result, simulatedDetail string) func(*testCtx) result {
+	auto := runScan(scan, simulatedDetail)
+	return func(t *testCtx) result {
+		r := auto(t)
+		if t.cancelled() || r.Status != statusNA {
+			return r
+		}
+		switch t.choose(what+" non vu par le système. Sur ce PC :",
+			choice{"Présent, non testable", statusOK}, choice{"En panne", statusFail}, choice{"Absent", statusNA}) {
+		case statusOK:
+			return result{Status: statusOK, Detail: "Présent, non vu par le système", Data: map[string]string{"pill": pillPresent}}
+		case statusFail:
+			return result{Status: statusFail, Detail: "Présent, en panne"}
+		case statusNA:
+			return r
+		}
+		return result{}
 	}
 }

@@ -34,10 +34,10 @@ func absentHardware() map[string]string {
 		out["bluetooth"] = "Pas de Bluetooth sur cette machine"
 	}
 	if len(modemNames("/")) == 0 {
-		out["sim"] = "Pas de modem SIM sur cette machine"
+		out["sim"] = "Non vu par le système : relancer pour indiquer s'il est présent"
 	}
 	if len(cardReaders()) == 0 {
-		out["lecteur"] = "Pas de lecteur de puce sur cette machine"
+		out["lecteur"] = "Non vu par le système : relancer pour indiquer s'il est présent"
 	}
 	if !hasBattery(sysPower) {
 		out["batterie"] = "Pas de batterie sur cette machine"
@@ -214,6 +214,13 @@ func portKind(hub, port string) string {
 		return usbKindC
 	}
 	if speed, _ := strconv.Atoi(readTrim(filepath.Join(hub, "speed"))); speed >= 5000 {
+		// Une prise USB-A a ses deux moitiés (bus 2.0 et 3.0, reliées par peer). Une
+		// prise accessible seulement côté 3.0 est une USB-C, dont la partie 2.0 passe
+		// ailleurs (constaté sur un HP EliteBook 850 G3 : 3 USB-A et 1 USB-C)
+		_, err := os.Lstat(filepath.Join(port, "peer"))
+		if err != nil && readTrim(filepath.Join(port, "connect_type")) == "hotplug" {
+			return usbKindC
+		}
 		return usbKind3
 	}
 	return usbKind2

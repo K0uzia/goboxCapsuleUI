@@ -539,6 +539,82 @@ func TestDiagnosticReport(t *testing.T) {
 	}
 }
 
+// Une prise seulement côté USB 3 est une USB-C ; les autres ont leur moitié USB 2.
+func TestPortKindUSBC(t *testing.T) {
+	root := t.TempDir()
+	hub := filepath.Join(root, "usb2")
+	mk := func(path, v string) {
+		t.Helper()
+		full := filepath.Join(hub, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(v+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("speed", "5000")
+	mk("usb2-port5/connect_type", "hotplug")
+	mk("usb2-port1/connect_type", "hotplug")
+	mk("usb2-port1/peer", "x")
+	mk("usb2-port6/connect_type", "unknown")
+	for port, want := range map[string]string{"usb2-port5": usbKindC, "usb2-port1": usbKind3, "usb2-port6": usbKind3} {
+		if got := portKind(hub, filepath.Join(hub, port)); got != want {
+			t.Errorf("%s : %s, attendu %s", port, got, want)
+		}
+	}
+}
+
+// Les lecteurs de portable qui ne se déclarent pas en CCID et les modems sans pilote
+// se reconnaissent à leur nom.
+func TestReaderAndModemNames(t *testing.T) {
+	root := t.TempDir()
+	mk := func(path, v string) {
+		t.Helper()
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(v+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("1-3/product", "EMV Smartcard Reader")
+	mk("1-4/product", "USB Optical Mouse")
+	mk("1-5/product", "HP lt4120 Snapdragon X5 LTE")
+	if got := usbCardReaders(root); len(got) != 1 || got[0] != "EMV Smartcard Reader" {
+		t.Errorf("lecteur : %v", got)
+	}
+	if got := usbModems(root); len(got) != 1 || !strings.Contains(got[0], "Snapdragon") {
+		t.Errorf("modem : %v", got)
+	}
+}
+
+// Non vu par le système : le technicien dit ce qu'il voit, la fiche le reprend.
+func TestSlotScanAsksTechnician(t *testing.T) {
+	a := test.NewApp()
+	defer a.Quit()
+	a.Settings().SetTheme(newTheme(true))
+	w := a.NewWindow("test")
+	s := newSession()
+	s.Tests = []*testDef{{ID: "lecteur", Title: "Puce", Category: catPeripherals, Color: cPeripheral, Soft: cPeripheralBg,
+		Run: runSlotScan("Lecteur de puce", func(context.Context, func(string, ...any)) result { return result{Status: statusNA} }, "")}}
+	wasSim := simulated
+	simulated = false
+	defer func() { simulated = wasSim }()
+	tools := newToolsPanel(s, w)
+	test.Tap(tools.buttons["lecteur"])
+	time.Sleep(50 * time.Millisecond)
+	answerAsk(tools.view, 0)
+	deadline := time.Now().Add(2 * time.Second)
+	for tools.active != nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r := findRow(t, s, "Ports et périphériques", "Lecteur de puce"); r.pillLabel() != pillPresent {
+		t.Errorf("fiche : %+v", r)
+	}
+}
+
 // Sans liste du BIOS, seules les cartes non Intel décrivent la machine.
 func TestGPUPorts(t *testing.T) {
 	conns := []videoConnector{{Type: "DisplayPort"}, {Type: "HDMI"}, {Type: "HDMI"}, {Type: internalScreen}}
