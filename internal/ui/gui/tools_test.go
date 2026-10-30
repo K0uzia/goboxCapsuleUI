@@ -175,6 +175,16 @@ func TestUSBKinds(t *testing.T) {
 	}
 }
 
+// Les outils du système passent avant ceux du paquet.
+func TestWithEmbeddedTools(t *testing.T) {
+	if got := withEmbeddedTools("/usr/bin"); got != "/usr/bin:"+embeddedTools {
+		t.Errorf("PATH : %q", got)
+	}
+	if got := withEmbeddedTools(""); got != embeddedTools {
+		t.Errorf("PATH vide : %q", got)
+	}
+}
+
 // Sans liste du BIOS, seules les cartes non Intel décrivent la machine.
 func TestGPUPorts(t *testing.T) {
 	conns := []videoConnector{{Type: "DisplayPort"}, {Type: "HDMI"}, {Type: "HDMI"}, {Type: internalScreen}}

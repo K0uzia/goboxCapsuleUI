@@ -30,6 +30,7 @@ var steps = []struct {
 // Réglages valables pour la session seulement (image live partagée) : thème
 // sombre à chaque lancement.
 func Run() {
+	os.Setenv("PATH", withEmbeddedTools(os.Getenv("PATH")))
 	if code, done := relaunchAsAdmin(); done {
 		os.Exit(code)
 	}
@@ -67,6 +68,17 @@ func Run() {
 	})
 	w.ShowAndRun()
 	restoreSuperKey() // si gobox est fermé pendant le test clavier
+}
+
+// embeddedTools outils installés avec le paquet (smartctl, dmidecode, lspci)
+const embeddedTools = "/usr/lib/gobox/bin"
+
+// withEmbeddedTools ajoute les outils du paquet au PATH, après ceux du système
+func withEmbeddedTools(path string) string {
+	if path == "" {
+		return embeddedTools
+	}
+	return path + ":" + embeddedTools
 }
 
 // mainContent contenu de la fenêtre principale : en-tête, fiche, outils,

@@ -3,6 +3,6 @@
 FROM docker.io/library/almalinux:8
 RUN dnf install -y dnf-plugins-core \
  && dnf config-manager --set-enabled powertools \
- && dnf install -y gcc binutils pkgconfig rpm-build libX11-devel libXcursor-devel libXrandr-devel \
+ && dnf install -y gcc binutils pkgconfig rpm-build smartmontools dmidecode pciutils hwdata libX11-devel libXcursor-devel libXrandr-devel \
       libXinerama-devel libXi-devel libXxf86vm-devel mesa-libGL-devel \
  && dnf clean all
