@@ -635,7 +635,7 @@ func TestParseVBT(t *testing.T) {
 	if parseVBT(nil) != nil || parseVBT([]byte("pas une table")) != nil || parseVBT(data[:40]) != nil {
 		t.Error("table illisible : rien")
 	}
-	for typ, want := range map[uint16]string{0x1806: "", 0x60d6: videoAny, 0x68c6: "DisplayPort", 0x60d2: videoAny, 0x6001: "VGA", 0: ""} {
+	for typ, want := range map[uint16]string{0x1806: "", 0x60d6: videoAny, 0x68c6: "DisplayPort", 0x60d2: "HDMI", 0x6001: "VGA", 0: ""} {
 		if got := vbtKind(typ); got != want {
 			t.Errorf("%04x : %q, attendu %q", typ, got, want)
 		}
