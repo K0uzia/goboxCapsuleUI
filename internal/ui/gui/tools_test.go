@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -170,7 +171,7 @@ func TestFicheSectionsMergeResults(t *testing.T) {
 	if r := findRow(t, s, "Affichage", "HDMI 2"); r.pillLabel() != pillUntested {
 		t.Errorf("HDMI 2 non branché, verdict OK : %+v", r)
 	}
-	if r := findRow(t, s, "Ports et saisie", "Ports USB"); r.Value != "2 / 4 testé(s)" {
+	if r := findRow(t, s, "Ports et périphériques", "Ports USB"); r.Value != "2 / 4 testé(s)" {
 		t.Errorf("USB : %+v", r)
 	}
 	// verdict négatif : la prise non branchée est celle qui ne marche pas
@@ -185,6 +186,44 @@ func TestFicheSectionsMergeResults(t *testing.T) {
 	}
 	findRow(t, s, "Affichage", "Autres sorties vidéo")
 }
+
+// Chaque icône de la fiche se trace jusqu'au bout, arcs compris : le tracé rendu
+// reste dans le carré de l'icône.
+func TestIconPathsInBounds(t *testing.T) {
+	for _, name := range []string{"microchip", "memory", "hard-drive", "display", "battery-half", "tv", "plug", "volume-high", "wifi", "rocket", "triangle-exclamation"} {
+		b, err := iconFiles.ReadFile("icons/" + name + ".svg")
+		if err != nil {
+			t.Fatal(err)
+		}
+		box := svgViewBox.FindSubmatch(b)
+		path := svgPath.FindSubmatch(b)
+		if box == nil || path == nil {
+			t.Fatalf("%s : tracé illisible", name)
+		}
+		w, _ := strconv.ParseFloat(string(box[1]), 64)
+		h, _ := strconv.ParseFloat(string(box[2]), 64)
+		pen := &boundsPen{}
+		drawSVGPath(pen, string(path[1]), 0, 0, 1)
+		if pen.points < 4 || pen.minX < -1 || pen.minY < -1 || pen.maxX > w+1 || pen.maxY > h+1 {
+			t.Errorf("%s : %+v pour %v x %v", name, pen, w, h)
+		}
+	}
+}
+
+type boundsPen struct {
+	points                 int
+	minX, minY, maxX, maxY float64
+}
+
+func (b *boundsPen) add(x, y float64) {
+	b.points++
+	b.minX, b.minY = min(b.minX, x), min(b.minY, y)
+	b.maxX, b.maxY = max(b.maxX, x), max(b.maxY, y)
+}
+func (b *boundsPen) MoveTo(x, y float64)                         { b.add(x, y) }
+func (b *boundsPen) LineTo(x, y float64)                         { b.add(x, y) }
+func (b *boundsPen) CurveBezierCubicTo(_, _, _, _, x, y float64) { b.add(x, y) }
+func (b *boundsPen) ClosePath()                                  {}
 
 // La fiche produit nomme le produit, sans adresse réseau ni nom système, et
 // reprend en tête ce qui ne va pas.

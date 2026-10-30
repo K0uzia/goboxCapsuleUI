@@ -39,5 +39,5 @@ Le *pourquoi* (comparaison avec LACAPSULE v1.8) est dans [`../ROADMAP.md`](../RO
 make deps     # une fois : outils système, Go, modules
 make dev      # lance la fenêtre (sudo, pour dmidecode / SMART)
 make test     # tests Go
-make build    # binaire optimisé dans build/
+make build    # binaire dans build/, compatible avec toutes les distributions Linux (podman ou docker)
 ```

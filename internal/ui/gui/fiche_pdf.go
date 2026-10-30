@@ -14,16 +14,16 @@ import (
 // La fiche finale, composée directement en PDF comme une fiche produit de
 // boutique : le produit et sa note d'abord, l'essentiel, ce qui est à signaler,
 // puis le détail composant par composant. Colonnes équilibrées et taille du
-// texte choisie pour remplir une page A4 sans en déborder.
+// texte choisie pour remplir une page A4 sans en déborder. Noir sur blanc pour
+// économiser l'encre : seul le mot de chaque résultat est en couleur.
 
-type sheetSpec struct{ Label, Value string }
+type sheetSpec struct{ Label, Icon, Value string }
 
 // ficheSheet contenu de la fiche finale
 type ficheSheet struct {
 	Name, Serial, Date, Tech string
 	Grade, Verdict, Sub      string
 	Kind                     verdictKind
-	State                    string // aspect et nettoyage
 	Specs                    []sheetSpec
 	Problems                 []ficheRow
 	Sections                 []ficheSection
@@ -32,7 +32,6 @@ type ficheSheet struct {
 
 // sheetHidden lignes utiles à l'atelier, sans intérêt sur une fiche produit
 var sheetHidden = map[string][]string{
-	"Machine":         {"Marque", "Modèle", "N° de série"},
 	"Processeur":      {"Modèle", "Architecture", "Fabricant"},
 	"Batterie":        {"Charge", "Temps restant", "Puissance", "Tension", "Fabricant", "Modèle", "Série"},
 	"Carte graphique": {"Modèle", "Pilote", "Fabricant"},
@@ -74,11 +73,16 @@ func diskSpec(value string) string {
 	return parts[2] + " " + parts[1]
 }
 
+var sheetIcons = map[string]string{
+	"Processeur": "microchip", "Mémoire": "memory", "Stockage": "hard-drive",
+	"Écran": "tv", "Graphique": "display", "Batterie": "battery-half",
+}
+
 func sheetSpecs(components map[string]Component) []sheetSpec {
 	var out []sheetSpec
 	add := func(label, v string) {
 		if v != "" {
-			out = append(out, sheetSpec{label, v})
+			out = append(out, sheetSpec{label, sheetIcons[label], v})
 		}
 	}
 	add("Processeur", shortCPU(components["Processeur"].Summary))
@@ -132,24 +136,13 @@ func newFicheSheet(s *session) ficheSheet {
 	if rest, ok := strings.CutPrefix(v.Sub, "Grade "); ok {
 		sh.Grade, sh.Sub, _ = strings.Cut(rest, " · ")
 	}
-	clean := "nettoyage à faire"
-	switch {
-	case s.Form.CleanIn && s.Form.CleanOut:
-		clean = "nettoyé intérieur et extérieur"
-	case s.Form.CleanIn:
-		clean = "nettoyé à l'intérieur"
-	case s.Form.CleanOut:
-		clean = "nettoyé à l'extérieur"
-	}
-	sh.State = "Aspect " + strings.ToLower(s.Form.Aspect) + ", " + clean
-
 	components := map[string]Component{}
 	for _, c := range s.Inventory {
 		components[c.Name] = c
 	}
 	sh.Specs = sheetSpecs(components)
 	for _, sec := range s.ficheSections() {
-		kept := ficheSection{Name: sec.Name}
+		kept := ficheSection{Name: sec.Name, Icon: sec.Icon}
 		for _, r := range sec.Rows {
 			hidden := false
 			for _, h := range sheetHidden[sec.Name] {
@@ -185,13 +178,12 @@ type rgb struct{ r, g, b int }
 
 // couleurs du thème clair (theme.go), lisibles sur papier
 var (
-	inkText   = rgb{27, 29, 34}
-	inkMuted  = rgb{91, 96, 105}
-	inkRule   = rgb{214, 217, 222}
-	inkAccent = rgb{0xb4, 0x53, 0x09}
-	inkOK     = rgb{0x1e, 0x7a, 0x46}
-	inkWarn   = rgb{0x8a, 0x53, 0x00}
-	inkFail   = rgb{0xb3, 0x26, 0x1e}
+	inkText  = rgb{27, 29, 34}
+	inkMuted = rgb{91, 96, 105}
+	inkRule  = rgb{154, 160, 168}
+	inkOK    = rgb{0x1e, 0x7a, 0x46}
+	inkWarn  = rgb{0x8a, 0x53, 0x00}
+	inkFail  = rgb{0xb3, 0x26, 0x1e}
 )
 
 func statusInk(s status) rgb {
@@ -241,7 +233,7 @@ func (p *sheetPDF) rowHeight(r ficheRow, w float64) float64 {
 }
 
 func (p *sheetPDF) sectionHeight(sec ficheSection, w float64) float64 {
-	h := 7.0*p.scale + 3.5
+	h := 6.2*p.scale + 3.5
 	for _, r := range sec.Rows {
 		h += p.rowHeight(r, w)
 	}
@@ -264,7 +256,7 @@ func (p *sheetPDF) drawRow(x, y, w float64, r ficheRow) float64 {
 	bad := r.Tested && (r.Status == statusWarn || r.Status == statusFail)
 	lc := inkMuted
 	if bad {
-		lc = statusInk(r.Status)
+		lc = inkText
 	}
 	p.style(9, bad, lc)
 	p.drawLines(x, y, lw-1.5, r.Label)
@@ -284,19 +276,30 @@ func (p *sheetPDF) drawRow(x, y, w float64, r ficheRow) float64 {
 	return h
 }
 
-func (p *sheetPDF) drawSectionTitle(x, y, w float64, title string) float64 {
-	p.style(8, true, inkAccent)
-	p.text(x, y, w, "L", strings.ToUpper(title), 5*p.scale)
+// drawSectionTitle icône, intitulé en capitales et filet pointillé
+func (p *sheetPDF) drawSectionTitle(x, y, w float64, icon, title string) float64 {
+	h := 5 * p.scale
+	tx := x
+	if icon != "" {
+		size := 3.4 * p.scale
+		drawIcon(p.Fpdf, icon, x, y+(h-size)/2, size, inkText)
+		tx += size + 1.5
+	}
+	p.style(8, true, inkText)
+	label := strings.ToUpper(title)
+	p.text(tx, y, w, "L", label, h)
 	p.SetDrawColor(inkRule.r, inkRule.g, inkRule.b)
 	p.SetLineWidth(0.2)
-	yy := y + 5*p.scale
-	p.Line(x, yy, x+w, yy)
-	return 7.0 * p.scale
+	p.SetDashPattern([]float64{0.8, 0.8}, 0)
+	lx := tx + p.GetStringWidth(label) + 2
+	p.Line(lx, y+h/2, x+w, y+h/2)
+	p.SetDashPattern(nil, 0)
+	return 6.2 * p.scale
 }
 
 func (p *sheetPDF) drawSection(x, y, w float64, sec ficheSection) float64 {
 	start := y
-	y += p.drawSectionTitle(x, y, w, sec.Name)
+	y += p.drawSectionTitle(x, y, w, sec.Icon, sec.Name)
 	for _, r := range sec.Rows {
 		y += p.drawRow(x, y, w, r)
 	}
@@ -326,8 +329,8 @@ func (p *sheetPDF) drawHeader(sh ficheSheet) float64 {
 	gradeW := 44.0
 	y := pageMargin
 
-	p.style(9, true, inkAccent)
-	p.text(x, y, w-gradeW, "L", "LA CAPSULE · PC RECONDITIONNÉ", 5)
+	p.style(9, false, inkMuted)
+	p.text(x, y, w-gradeW, "L", "La Capsule · PC reconditionné", 5)
 	y += 6
 
 	p.style(25, true, inkText)
@@ -348,8 +351,6 @@ func (p *sheetPDF) drawHeader(sh ficheSheet) float64 {
 	p.style(9.5, false, inkMuted)
 	p.drawLines(x, y, w-gradeW-4, strings.Join(append(meta, control), " · "))
 	y += p.lineH() * 1.2
-	p.drawLines(x, y, w-gradeW-4, sh.State)
-	y += p.lineH() * 1.2
 
 	// La note : une lettre si le verdict la donne
 	gx := x + w - gradeW
@@ -364,7 +365,7 @@ func (p *sheetPDF) drawHeader(sh ficheSheet) float64 {
 	if sh.Grade != "" {
 		p.style(8, true, inkMuted)
 		p.text(gx, gy, gradeW, "R", "GRADE", 5)
-		p.style(38, true, c)
+		p.style(38, true, inkText)
 		p.text(gx, gy+4, gradeW, "R", sh.Grade, 15)
 		gy += 20
 	}
@@ -374,8 +375,8 @@ func (p *sheetPDF) drawHeader(sh ficheSheet) float64 {
 	p.text(gx, gy+5.5, gradeW, "R", sh.Sub, 4.5)
 	y = max(y, gy+11)
 
-	p.SetDrawColor(inkAccent.r, inkAccent.g, inkAccent.b)
-	p.SetLineWidth(0.7)
+	p.SetDrawColor(inkText.r, inkText.g, inkText.b)
+	p.SetLineWidth(0.6)
 	p.Line(x, y+1.5, x+w, y+1.5)
 	return y + 5
 }
@@ -391,8 +392,10 @@ func (p *sheetPDF) drawSpecs(y float64, specs []sheetSpec) float64 {
 		rowH := 0.0
 		for j := i; j < min(i+cols, len(specs)); j++ {
 			x := pageMargin + float64(j-i)*(w+6)
+			size := 3.2 * p.scale
+			drawIcon(p.Fpdf, specs[j].Icon, x, y+(4.5*p.scale-size)/2, size, inkMuted)
 			p.style(8, false, inkMuted)
-			p.text(x, y, w, "L", specs[j].Label, 4.5*p.scale)
+			p.text(x+size+1.2, y, w, "L", specs[j].Label, 4.5*p.scale)
 			p.style(12, true, inkText)
 			lh := 5.4 * p.scale
 			lines := p.SplitText(specs[j].Value, w)
@@ -410,7 +413,7 @@ func (p *sheetPDF) problemsHeight(sh ficheSheet, w float64) float64 {
 	if len(sh.Problems) == 0 {
 		return 0
 	}
-	h := 7.0*p.scale + 3
+	h := 6.2*p.scale + 3
 	for _, r := range sh.Problems {
 		h += p.rowHeight(r, w)
 	}
@@ -422,7 +425,7 @@ func (p *sheetPDF) notesHeight(sh ficheSheet, w float64) float64 {
 		return 0
 	}
 	p.style(9, false, inkText)
-	return 7.0*p.scale + float64(len(p.SplitText(sh.Notes, w)))*p.lineH() + 3
+	return 6.2*p.scale + float64(len(p.SplitText(sh.Notes, w)))*p.lineH() + 3
 }
 
 func addFonts(pdf *fpdf.Fpdf) {
@@ -481,9 +484,7 @@ func writeSheet(w io.Writer, sh ficheSheet) error {
 	y = p.drawSpecs(y, sh.Specs)
 
 	if len(sh.Problems) > 0 {
-		p.style(8, true, inkFail)
-		p.text(pageMargin, y, full, "L", "À SIGNALER", 5*p.scale)
-		y += 6 * p.scale
+		y += p.drawSectionTitle(pageMargin, y, full, "triangle-exclamation", "À signaler")
 		for _, r := range sh.Problems {
 			y += p.drawRow(pageMargin, y, full, r)
 		}
@@ -510,7 +511,7 @@ func writeSheet(w io.Writer, sh ficheSheet) error {
 			pdf.AddPage()
 			ny = pageMargin
 		}
-		ny += p.drawSectionTitle(pageMargin, ny, full, "Observations du technicien")
+		ny += p.drawSectionTitle(pageMargin, ny, full, "", "Observations du technicien")
 		p.style(9, false, inkText)
 		p.drawLines(pageMargin, ny, full, sh.Notes)
 	}

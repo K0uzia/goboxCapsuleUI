@@ -271,15 +271,6 @@ func (f *fichePanel) refresh() {
 	f.inventoryBox.Refresh()
 }
 
-// machineComponent identité de la machine, première section de la fiche
-func machineComponent(m machineInfo) Component {
-	return Component{Name: "Machine", Icon: "computer", Summary: m.Name(), Fields: []Field{
-		{"Marque", orUnknown(m.Vendor, "non lue")},
-		{"Modèle", orUnknown(m.Product, "non lu")},
-		{"N° de série", orUnknown(m.Serial, "non lu (droits root)")},
-	}}
-}
-
 // inventoryCard carte d'un composant : icône, nom, résumé, puis ses valeurs et
 // les résultats de ses tests
 func inventoryCard(c ficheSection) fyne.CanvasObject {

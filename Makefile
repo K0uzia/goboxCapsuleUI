@@ -1,4 +1,4 @@
-.PHONY: help deps deps-system deps-go deps-mod update run dev dev-build dev-user build fmt vet test check clean
+.PHONY: help deps deps-system deps-go deps-mod update run dev dev-build dev-user build build-local fmt vet test check clean
 
 # ---- Configuration ---------------------------------------------------------
 
@@ -181,7 +181,15 @@ endif
 
 # ---- Build -----------------------------------------------------------------
 
-build: ## Compile le binaire optimisé dans build/
+build: ## Compile le binaire dans build/, compatible avec toutes les distributions Linux (podman ou docker)
+ifeq ($(PLATFORM),windows)
+	@$(MAKE) build-local
+else
+	@sh scripts/build-portable.sh "$(GO)" "$(GO_TAGS)" "$(LDFLAGS)" "$(BINARY)" "$(MAIN_PKG)"
+	@echo "Binaire : $(BINARY)"
+endif
+
+build-local: ## Compile sans conteneur (limité aux distributions aussi récentes que celle-ci)
 	@$(MKDIR_BUILD)
 	$(GO) build $(TAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) $(MAIN_PKG)
 	@echo "Binaire : $(BINARY)"

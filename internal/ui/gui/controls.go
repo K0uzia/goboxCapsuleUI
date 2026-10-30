@@ -30,9 +30,9 @@ var (
 
 	ctrlPeripherals = []ctrlItem{
 		{Label: "Port carte SD", TestID: "sd"},
-		{Label: "Webcam", TestID: "webcam"},
 		{Label: "Clavier", TestID: "clavier"},
 		{Label: "Pad / souris", TestID: "souris"},
+		{Label: "Webcam", TestID: "webcam"},
 	}
 	ctrlSound = []ctrlItem{
 		{Label: "Carte son", TestID: "son", Key: "card"},
@@ -232,7 +232,20 @@ func (s *session) stressRow() ficheRow {
 	return row
 }
 
-// ficheSections la fiche, composant par composant, dans l'ordre de l'atelier
+// cleaningText état du nettoyage
+func cleaningText(fm *ficheForm) string {
+	switch {
+	case fm.CleanIn && fm.CleanOut:
+		return "intérieur et extérieur"
+	case fm.CleanIn:
+		return "intérieur"
+	case fm.CleanOut:
+		return "extérieur"
+	}
+	return "à faire"
+}
+
+// ficheSections la fiche, composant par composant
 func (s *session) ficheSections() []ficheSection {
 	fm := &s.Form
 	info := func(label, v string) ficheRow { return ficheRow{Label: label, Value: v} }
@@ -248,23 +261,25 @@ func (s *session) ficheSections() []ficheSection {
 	}
 	periph := append([]ficheRow{s.usbRow(), info("USB défectueux", orUnknown(strings.TrimSpace(fm.USBBad), "0"))}, s.itemRows(ctrlPeripherals)...)
 
+	prep := append([]ficheRow{info("Aspect", strings.ToLower(fm.Aspect)), info("Nettoyage", cleaningText(fm)), info("Pile setup changée", fm.CMOS)}, s.itemRows(ctrlSystem)...)
+
+	// Du cœur de la machine vers l'extérieur, puis sa remise en état
 	extras := []struct {
 		name, icon string
 		rows       []ficheRow
 	}{
-		{"Machine", "computer", []ficheRow{info("Pile setup changée", fm.CMOS)}},
 		{"Processeur", "microchip", []ficheRow{s.stressRow(), info("Pâte thermique changée", fm.Paste)}},
 		{"Mémoire RAM", "memory", nil},
 		{"Stockage", "hard-drive", storage},
-		{"Batterie", "battery-half", []ficheRow{info("Chargeur en bon état", fm.Charger)}},
-		{"Cartes réseau", "wifi", []ficheRow{s.testRow("Test réseau", "reseau")}},
 		{"Carte graphique", "display", nil},
+		{"Batterie", "battery-half", []ficheRow{info("Chargeur en bon état", fm.Charger)}},
 		{"Affichage", "tv", append(s.portRows(), s.manualRow(ctrlOtherVideo)...)},
-		{"Ports et saisie", "plug", append(periph, s.manualRow(ctrlOther)...)},
+		{"Ports et périphériques", "plug", append(periph, s.manualRow(ctrlOther)...)},
 		{"Son", "volume-high", s.itemRows(ctrlSound)},
-		{"Système", "rocket", s.itemRows(ctrlSystem)},
+		{"Cartes réseau", "wifi", []ficheRow{s.testRow("Test réseau", "reseau")}},
+		{"Préparation", "rocket", prep},
 	}
-	components := map[string]Component{"Machine": machineComponent(s.Machine)}
+	components := map[string]Component{}
 	for _, c := range s.Inventory {
 		components[c.Name] = c
 	}
