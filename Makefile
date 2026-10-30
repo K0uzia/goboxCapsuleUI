@@ -181,14 +181,15 @@ endif
 
 # ---- Build -----------------------------------------------------------------
 
-build: ## Compile build/gobox : un seul fichier, outils inclus, pour toutes les distributions (podman ou docker)
+build: ## Compile build/gobox (fichier unique, outils inclus) et les paquets .rpm et .deb (podman ou docker)
 ifeq ($(PLATFORM),windows)
 	@$(MAKE) build-local
 else
 	@sh scripts/build-portable.sh "$(GO)" "$(GO_TAGS)" "$(LDFLAGS)" "$(BINARY)" "$(MAIN_PKG)"
 	@chmod +x $(BINARY)
 	@echo "Binaire : $(BINARY)"
-	@echo "Fichier unique, rien à installer sur le PC. Pour le lancer : clic droit, Exécuter comme un programme"
+	@echo "Sans installation : build/gobox, clic droit, Exécuter comme un programme"
+	@echo "Paquets : $(BUILD_DIR)/$(APP).rpm et $(BUILD_DIR)/$(APP).deb, jamais sur un PC à vendre"
 endif
 
 install: ## Ajoute gobox et son icône à une image live en préparation, jamais sur un PC à vendre (demande sudo)

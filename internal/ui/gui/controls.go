@@ -46,9 +46,11 @@ var (
 		{Label: "SMART SSD", TestID: "ssd"},
 		{Label: "SMART NVMe", TestID: "nvme"},
 	}
+	ctrlPower = []ctrlItem{
+		{Label: "Test de charge", TestID: "batterie"},
+		{Label: "Chargeur", TestID: "chargeur"},
+	}
 	ctrlSystem = []ctrlItem{
-		{Label: "Clonage système", TestID: "clone"},
-		{Label: "Déploiement post-install", TestID: "deploy"},
 		{Label: "Mises à jour", TestID: "maj"},
 	}
 )
@@ -241,6 +243,19 @@ func (s *session) usbRows() []ficheRow {
 	return []ficheRow{row}
 }
 
+// usbBadRow prises défectueuses relevées par le système pendant le test des ports
+func (s *session) usbBadRow() ficheRow {
+	r, ran := s.Results["ports"]
+	if !ran {
+		return ficheRow{Label: "USB défectueux", Value: "détection au test des ports"}
+	}
+	list := r.Data["usb_bad"]
+	if list == "" {
+		return ficheRow{Label: "USB défectueux", Value: "aucun détecté"}
+	}
+	return ficheRow{Label: "USB défectueux", Value: list, Tested: true, Status: statusFail}
+}
+
 // stressRow résultat du stress test : températures et erreurs de calcul
 func (s *session) stressRow() ficheRow {
 	row := s.testRow("Stress test", "stress")
@@ -279,7 +294,13 @@ func (s *session) ficheSections() []ficheSection {
 	if fm.DVD != "absent" {
 		storage = append(storage, info("Lecteur DVD fonctionnel", fm.DVD))
 	}
-	periph := append(append(s.usbRows(), info("USB défectueux", orUnknown(strings.TrimSpace(fm.USBBad), "0"))), s.itemRows(ctrlPeripherals)...)
+	periph := append(append(s.usbRows(), s.usbBadRow()), s.itemRows(ctrlPeripherals)...)
+	var power []ficheRow
+	for _, row := range s.itemRows(ctrlPower) {
+		if row.Status != statusNA || row.Pill != "" { // sinon : pas de batterie
+			power = append(power, row)
+		}
+	}
 
 	prep := append([]ficheRow{info("Aspect", strings.ToLower(fm.Aspect)), info("Nettoyage", cleaningText(fm)), info("Pile setup changée", fm.CMOS)}, s.itemRows(ctrlSystem)...)
 
@@ -292,7 +313,7 @@ func (s *session) ficheSections() []ficheSection {
 		{"Mémoire RAM", "memory", nil},
 		{"Stockage", "hard-drive", storage},
 		{"Carte graphique", "display", nil},
-		{"Batterie", "battery-half", []ficheRow{info("Chargeur en bon état", fm.Charger)}},
+		{"Batterie", "battery-half", power},
 		{"Affichage", "tv", append(s.portRows(), s.manualRow(ctrlOtherVideo)...)},
 		{"Ports et périphériques", "plug", append(periph, s.manualRow(ctrlOther)...)},
 		{"Son", "volume-high", s.itemRows(ctrlSound)},
@@ -347,7 +368,6 @@ type maintRow struct {
 var maintRows = []maintRow{
 	{"Pâte thermique changée", func(f *ficheForm) *string { return &f.Paste }, []string{"oui", "non"}},
 	{"Shred des disques", func(f *ficheForm) *string { return &f.Shred }, []string{"oui", "non"}},
-	{"Chargeur en bon état", func(f *ficheForm) *string { return &f.Charger }, []string{"oui", "non"}},
 	{"Pile setup changée", func(f *ficheForm) *string { return &f.CMOS }, []string{"oui", "non"}},
 	{"Lecteur DVD", func(f *ficheForm) *string { return &f.DVD }, []string{"oui", "non", "absent"}},
 }

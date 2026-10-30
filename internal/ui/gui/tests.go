@@ -54,6 +54,9 @@ func (t *testCtx) ui(f func()) { fyne.Do(f) }
 // markSimulated signale à l'écran que les mesures sont simulées
 func (t *testCtx) markSimulated() { fyne.Do(func() { t.view.simBadge.Show() }) }
 
+// setPanelEmpty retire le contenu propre au test
+func (t *testCtx) setPanelEmpty() { fyne.Do(func() { t.view.setPanel(nil) }) }
+
 // ask affiche une question avec des boutons, sans bloquer
 func (t *testCtx) ask(prompt string, opts ...choice) <-chan status {
 	ch := make(chan status, 1)
@@ -95,14 +98,3 @@ func (t *testCtx) sleep(d time.Duration) bool {
 }
 
 func (t *testCtx) cancelled() bool { return t.ctx.Err() != nil }
-
-// runManual opérations pas encore intégrées : le technicien saisit le résultat
-func runManual(t *testCtx) result {
-	t.log("Cette opération n'est pas encore intégrée à gobox (voir docs/ROADMAP.md).")
-	t.log("Si elle a été faite avec un autre outil, indiquez le résultat.")
-	t.progress(-1)
-	s := t.choose("Résultat de l'opération :",
-		choice{"OK", statusOK}, choice{"Nul", statusFail}, choice{"Non faite", statusNA})
-	detail := map[status]string{statusOK: "Fait hors gobox", statusFail: "Échec", statusNA: "Non réalisé"}[s]
-	return result{Status: s, Detail: detail}
-}

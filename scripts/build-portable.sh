@@ -57,4 +57,5 @@ $ENGINE run --rm $USER_ARGS --security-opt label=disable \
 			exit 1
 		fi
 		echo "Contrôle réussi : compatible avec les distributions à glibc $needed ou plus récente"
+		sh packaging/build-packages.sh
 	'

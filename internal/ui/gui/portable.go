@@ -134,5 +134,32 @@ func CheckTools() int {
 		}
 		fmt.Printf("%-10s OK (%s) : %s\n", t.name, path, first)
 	}
+	reportUSB()
 	return code
+}
+
+// reportUSB détail des prises USB, pour comprendre une détection de type incorrecte
+func reportUSB() {
+	loadTypeCDriver()
+	phys := readPhysicalPorts()
+	ports := readUSBPorts(max(phys.USB, 0))
+	ports.typeC = max(ports.typeC, phys.USBC)
+	fmt.Printf("USB : %v, total %d\n", ports.kindTotals(), ports.total)
+	typeC, _ := filepath.Glob("/sys/class/typec/*")
+	thunderbolt, _ := filepath.Glob("/sys/bus/thunderbolt/devices/domain*")
+	fmt.Printf("Type-C : %d entrée(s) dans /sys/class/typec, BIOS %d, thunderbolt %d\n", len(typeC), phys.USBC, len(thunderbolt))
+	for name, key := range ports.group {
+		fmt.Printf("  %s : prise %s, %s\n", name, key, ports.kindOf(key))
+	}
+	for name := range ports.possible {
+		fmt.Printf("  %s : non renseigné par le BIOS\n", name)
+	}
+	if tool := toolPath("dmidecode"); tool != "" {
+		out, err := exec.Command(tool, "-t", "8").CombinedOutput()
+		if err != nil {
+			fmt.Printf("dmidecode : %v (droits administrateur ?)\n", err)
+			return
+		}
+		fmt.Printf("%s\n", out)
+	}
 }

@@ -67,7 +67,11 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-10-30 | Résultat inscrit dans la fiche sans confirmation ; retour direct au menu après un verdict du technicien | demande de l'humain : validation trop longue |
 | 2026-10-30 | Étapes centrées en haut, À propos et Réglages après PRINT | demande de l'humain |
 | 2026-10-30 | Prises vidéo et USB : seulement celles présentes, avec leur quantité et leur type réel (USB 2.0, 3.x, USB-C ; VGA reconnu par l'EDID) | demande de l'humain |
-| 2026-10-30 | `make build` : un seul fichier `build/gobox`, portable (conteneur glibc 2.28), outils inclus (smartctl, dmidecode, lspci) extraits en temporaire ; ni paquet ni installation | le PC part ensuite en vente : rien ne doit y rester |
+| 2026-10-30 | `make build` : `build/gobox`, fichier unique portable (conteneur glibc 2.28), outils inclus (smartctl, dmidecode, lspci) extraits en temporaire, plus `gobox.rpm` et `gobox.deb` | le PC vendu ne reçoit que le fichier unique ; les paquets servent à l'image ou à un poste d'atelier |
+| 2026-10-30 | Tests Clone et Déploiement retirés ; MAJ réelle (apt-get ou dnf : update puis upgrade) | demande de l'humain |
+| 2026-10-30 | Tests distincts Charge et Chargeur ; sans chargeur : « SANS CHARGEUR », sans effet sur le verdict | un PC arrive souvent sans chargeur |
+| 2026-10-30 | USB défectueux détectés automatiquement (journal du noyau, surintensité) au test des ports, plus de saisie | demande de l'humain |
+| 2026-10-30 | Ping dans le test réseau (1.1.1.1, latence et pertes) | demande de l'humain, sens à confirmer |
 | 2026-10-27 | Tracebay-Autonome (tout sur un poste, système de licence) : source principale pour la logique ; Tracebay (serveur séparé sur le réseau) : source pour le fonctionnement en réseau | réponse d'interview |
 
 ## Modèle à respecter
@@ -97,7 +101,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 6 | Boutons Réglages et Info | réglages de session (thème et autres paramètres définis avec l'humain), retour aux valeurs par défaut au lancement | test d'interface, capture | en partie : thème seul, autres paramètres à définir |
 | 7 | Finitions | chronomètre visible, hachures du test en cours, raccourcis Échap et Entrée | test d'interface, capture | livré (contour animé à la place des hachures), à valider |
 | 8 | Kit : projets logiciels | type `logiciel-bureau`, rule d'interface logiciel, interview, hook, livraison | textes validés, `journal-kit.md` | à faire |
-| 9 | Boîte à outils | briques reprises de gobox, Tracebay-Autonome et Tracebay, proposées une par une | `node outils/indexer.mjs` sans erreur | à faire |
+| 9 | Boîte à outils | briques reprises de gobox, Tracebay-Autonome et Tracebay | `node outils/indexer.mjs` sans erreur | en partie : 5 briques de gobox ajoutées le 2026-10-30, Tracebay à faire |
 
 ## À fournir
 
@@ -111,6 +115,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 - Aucune fenêtre ni aucun navigateur ouvert au premier plan sur l'écran de l'humain, rien qui prenne le focus. Captures de l'application : rendu en mémoire, `GOBOX_CAPTURES=<dossier> go test -run TestCaptures ./internal/ui/gui` (`internal/ui/gui/capture_test.go`). Captures web : navigateur sans interface (demande de l'humain, 2026-10-28).
 
 - Le PC reconditionné part en vente : gobox n'y installe rien et n'y laisse rien. Ni paquet, ni installation, ni fichier à la fermeture (test `TestRemoveTraces`). Tout outil utilisé est inclus dans le binaire ou signalé comme manquant à l'humain. Audio, webcam et réglages du bureau restent ceux du système.
+- Avant de coder : lire `../kouzia-boite-a-outils/INDEX.md`, et dire tout de suite à l'humain si le dossier manque. Toute brique réutilisable créée ici alimente la boîte (socle `go-fyne`) (demande de l'humain, 2026-10-30).
 - Claude tient ce mode d'emploi à jour seul, à chaque décision ou erreur, sans demander de validation ; il lit le mode d'emploi avant de proposer une solution (demande de l'humain, 2026-10-30).
 - Aucune donnée propre à un PC ou à un technicien n'est enregistrée localement (`fyne.Preferences` exclu) : image live partagée.
 - P1 : `docs/todo/*.md` utilise des emoji et des tirets cadratin (contraire à `web-method` « Tirets ») : à traiter seulement si l'humain le demande.
@@ -135,5 +140,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-10-30 | Brave ouvert au lieu du navigateur par défaut | `xdg-settings` sans bureau dans l'environnement (pkexec, sudo) | navigateur lu dans `mimeapps.list`, test `TestFindDefaultBrowser` |
 | 2026-10-30 | Outils laissés en dépendances alors que le PC démarre sur une image live | contexte du mode d'emploi non appliqué | outils embarqués (« Règles propres au projet ») |
 | 2026-10-30 | Paquets `.rpm` et `.deb` proposés, qui installent sur un PC destiné à la vente | contrainte de vente absente du mode d'emploi, et pas vérifiée avant de choisir | règle « gobox n'y installe rien et n'y laisse rien » (« Règles propres au projet ») |
+| 2026-10-30 | Boîte à outils ni lue ni alimentée, et son absence jamais signalée | dossier absent au premier passage, non signalé ; rule `boite-a-outils` non appliquée ensuite | lecture et alimentation obligatoires (« Règles propres au projet ») |
+| 2026-10-30 | Caméra restée ouverte après son test | SIGKILL envoyé à sudo, qui ne le relaie pas | SIGTERM au groupe (`stopProcess`), test `TestStopProcessStopsChildren` |
 | 2026-10-30 | Mode d'emploi non tenu à jour, validations redemandées | règle du kit suivie à la lettre | mise à jour autonome (« Règles propres au projet ») |
 | 2026-10-28 | Défilement de la fiche bloqué quand le pointeur passe sur un champ de saisie (signalé par l'humain) | défilement interne des champs Fyne qui garde la molette ; aucun test de défilement | couche de renvoi de la molette et test automatique (« Règles propres au projet ») |

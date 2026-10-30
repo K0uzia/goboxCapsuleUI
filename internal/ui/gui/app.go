@@ -42,7 +42,7 @@ func Run() {
 	w.Resize(fyne.NewSize(1280, 800))
 
 	s := newSession()
-	content, _ := mainContent(s, w)
+	content, tools := mainContent(s, w)
 	w.SetContent(content)
 
 	// Inventaire en tâche de fond (dmidecode, sysfs… peuvent prendre 1 à 2 s)
@@ -69,6 +69,10 @@ func Run() {
 		}()
 	})
 	w.ShowAndRun()
+	if tools.cancel != nil { // gobox fermé pendant un test : rien ne reste ouvert (aperçu caméra…)
+		tools.cancel()
+		time.Sleep(500 * time.Millisecond)
+	}
 	restoreSuperKey() // si gobox est fermé pendant le test clavier
 }
 

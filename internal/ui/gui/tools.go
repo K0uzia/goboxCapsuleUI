@@ -36,7 +36,7 @@ func newToolsPanel(s *session, win fyne.Window) *toolsPanel {
 	for i, cat := range []struct {
 		name string
 		cols int
-	}{{catPeripherals, 4}, {catStorage, 3}, {catSystem, 3}} {
+	}{{catPeripherals, 5}, {catStorage, 3}, {catSystem, 1}} {
 		grid := container.NewGridWithColumns(cat.cols)
 		for _, t := range s.Tests {
 			if t.Category == cat.name {

@@ -11,6 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,6 +89,7 @@ func runPorts(t *testCtx) result {
 	t.progress(-1)
 	phys := readPhysicalPorts()
 	usb := readUSBPorts(max(phys.USB, 0))
+	usb.typeC = max(usb.typeC, phys.USBC)
 	conns := videoConnectors()
 	if simulated {
 		t.markSimulated()
@@ -95,6 +99,27 @@ func runPorts(t *testCtx) result {
 		conns = []videoConnector{{Name: "HDMI-A-1", Type: "HDMI", Plug: "HDMI"}, {Name: "VGA-1", Type: "VGA", Plug: "VGA"}, {Name: "eDP-1", Type: internalScreen, Plug: internalScreen, Connected: true, Mode: "1920x1080"}}
 	}
 	videoKnown := len(phys.Video) > 0
+
+	// Prises défectueuses : surintensité déjà comptée, puis erreurs du noyau à
+	// chaque branchement raté. Seul ce qui arrive après le début du test compte.
+	usbBad := map[string]bool{}
+	for _, port := range usb.overCurrentPorts() {
+		usbBad[port] = true
+	}
+	logSeen := len(kernelLog())
+	checkKernel := func() {
+		log := kernelLog()
+		if len(log) <= logSeen {
+			return
+		}
+		for _, name := range parseUSBErrors(log[logSeen:]) {
+			if port := usb.portOfError(name); port != "" && !usbBad[port] {
+				usbBad[port] = true
+				t.log("Erreur : prise USB défectueuse (%s)", name)
+			}
+		}
+		logSeen = len(log)
+	}
 
 	// un port déjà occupé (clavier, souris, écran) est un port qui marche
 	usbTested := map[string]bool{}
@@ -210,7 +235,19 @@ func runPorts(t *testCtx) result {
 			return result{}
 		case s := <-answer:
 			t.clearAsk()
+			checkKernel()
 			data := map[string]string{"usb": portCount(len(usbTested), usb.total)}
+			if len(usbBad) > 0 {
+				var bad []string
+				for port := range usbBad {
+					bad = append(bad, usb.kindOf(port))
+				}
+				sort.Strings(bad)
+				data["usb_bad"] = fmt.Sprintf("%d : %s", len(bad), strings.Join(bad, ", "))
+				if s == statusOK {
+					s = statusWarn // le technicien a validé, le système a vu une panne
+				}
+			}
 			parts := []string{"USB " + data["usb"]}
 			if usb.total >= 0 {
 				totals := usb.kindTotals()
@@ -231,6 +268,7 @@ func runPorts(t *testCtx) result {
 			}
 			return result{Status: s, Detail: strings.Join(parts, " · "), Data: data}
 		case <-tick.C:
+			checkKernel()
 			for dev, name := range usbDevices() {
 				if _, ok := known[dev]; ok {
 					continue
@@ -617,7 +655,67 @@ func runNetwork(t *testCtx) result {
 	resp.Body.Close()
 	latency := time.Since(start).Round(time.Millisecond)
 	t.log("Internet : OK (%s)", latency)
-	return result{Status: statusOK, Detail: fmt.Sprintf("%s · internet OK (%s)", strings.Join(unique(cards), " + "), latency)}
+	st := statusOK
+	detail := fmt.Sprintf("%s · internet OK (%s)", strings.Join(unique(cards), " + "), latency)
+	if ping := runPing(t, pingTarget); ping.ok {
+		detail += " · " + ping.text()
+		if ping.Loss > 0 {
+			st = statusWarn
+		}
+	}
+	return result{Status: st, Detail: detail}
+}
+
+// pingTarget adresse IP : le ping mesure le réseau, pas la résolution DNS
+const pingTarget = "1.1.1.1"
+
+// pingResult résumé d'un ping
+type pingResult struct {
+	Loss, Avg float64 // %, ms
+	ok        bool
+}
+
+func (p pingResult) text() string {
+	return strings.Replace(fmt.Sprintf("ping %.0f ms, %.0f %% perdus", p.Avg, p.Loss), ".", ",", 1)
+}
+
+var (
+	pingLoss = regexp.MustCompile(`([\d.]+)% packet loss`)
+	pingRTT  = regexp.MustCompile(`= [\d.]+/([\d.]+)/`)
+)
+
+// parsePing lit le résumé de la commande ping
+func parsePing(out string) pingResult {
+	loss := pingLoss.FindStringSubmatch(out)
+	if loss == nil {
+		return pingResult{}
+	}
+	p := pingResult{ok: true}
+	p.Loss, _ = strconv.ParseFloat(loss[1], 64)
+	if rtt := pingRTT.FindStringSubmatch(out); rtt != nil {
+		p.Avg, _ = strconv.ParseFloat(rtt[1], 64)
+	}
+	return p
+}
+
+// runPing mesure latence et pertes ; ok faux si ping manque ou ne répond rien
+func runPing(t *testCtx, target string) pingResult {
+	tool := toolPath("ping")
+	if tool == "" {
+		t.log("Ping : commande absente")
+		return pingResult{}
+	}
+	t.log("Ping de %s…", target)
+	ctx, cancel := context.WithTimeout(t.ctx, 15*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, tool, "-c", "4", "-W", "2", target).CombinedOutput()
+	p := parsePing(string(out))
+	if p.ok {
+		t.log("Ping : %s", p.text())
+	} else {
+		t.log("Ping : pas de réponse")
+	}
+	return p
 }
 
 func unique(s []string) []string {
@@ -811,7 +909,7 @@ func runWebcam(t *testCtx) result {
 		t.log("Impossible d'ouvrir l'aperçu : %v", err)
 	} else {
 		t.log("Aperçu ouvert dans une autre fenêtre")
-		defer func() { _ = viewer.Process.Kill(); _ = viewer.Wait() }()
+		defer stopProcess(viewer)
 	}
 
 	s := t.choose("L'image de la webcam est-elle correcte ?", verdictChoices...)
@@ -877,7 +975,9 @@ func firstAvailable(names ...string) string {
 func userCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 	user, uid := sessionUser()
 	if user == "" {
-		return exec.CommandContext(ctx, name, args...)
+		cmd := exec.CommandContext(ctx, name, args...)
+		setProcessGroup(cmd)
+		return cmd
 	}
 	runtime := "/run/user/" + uid
 	env := []string{
@@ -894,5 +994,7 @@ func userCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 		}
 	}
 	env = append(env, name)
-	return exec.CommandContext(ctx, "sudo", append(env, args...)...)
+	cmd := exec.CommandContext(ctx, "sudo", append(env, args...)...)
+	setProcessGroup(cmd)
+	return cmd
 }

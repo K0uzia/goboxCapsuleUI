@@ -86,7 +86,7 @@ var testIcons = map[string]string{
 	"stress": "fire", "ports": "plug", "son": "volume-high", "reseau": "network-wired",
 	"clavier": "keyboard", "souris": "computer-mouse", "webcam": "camera", "sd": "sd-card",
 	"hdd": "hard-drive", "ssd": "memory", "nvme": "microchip",
-	"clone": "clone", "deploy": "rocket", "maj": "arrows-rotate",
+	"batterie": "battery-half", "chargeur": "bolt", "maj": "arrows-rotate",
 }
 
 func testDefs() []*testDef {
@@ -99,12 +99,12 @@ func testDefs() []*testDef {
 		{ID: "souris", Title: "Souris", Category: catPeripherals, Desc: "Clics, défilement et pavé tactile", Run: runMouse},
 		{ID: "webcam", Title: "Webcam", Category: catPeripherals, Desc: "Aperçu de la caméra", Run: runWebcam},
 		{ID: "sd", Title: "Carte SD", Category: catPeripherals, Desc: "Détection d'une carte insérée", Run: runSD},
+		{ID: "batterie", Title: "Charge", Category: catPeripherals, Desc: "La batterie charge-t-elle, chargeur branché ?", Run: runBatteryCharge},
+		{ID: "chargeur", Title: "Chargeur", Category: catPeripherals, Desc: "Détection du chargeur, s'il y en a un", Run: runCharger},
 		{ID: "hdd", Title: "S. HDD", Category: catStorage, Desc: "État SMART des disques durs", Run: runSmart("hdd")},
 		{ID: "ssd", Title: "S. SSD", Category: catStorage, Desc: "État SMART des SSD SATA", Run: runSmart("ssd")},
 		{ID: "nvme", Title: "S. NVMe", Category: catStorage, Desc: "État SMART des SSD NVMe", Run: runSmart("nvme")},
-		{ID: "clone", Title: "Clone", Category: catSystem, Desc: "Clonage d'une image système", Run: runManual},
-		{ID: "deploy", Title: "Déploiement", Category: catSystem, Desc: "Post-installation et pilotes", Run: runManual},
-		{ID: "maj", Title: "MAJ", Category: catSystem, Desc: "Mise à jour du système", Run: runManual},
+		{ID: "maj", Title: "MAJ", Category: catSystem, Desc: "Mise à jour du système et des paquets (update, upgrade)", Run: runUpdate},
 	}
 	for _, d := range defs {
 		d.Color, d.Soft = categoryRoles(d.Category)
@@ -122,10 +122,8 @@ type ficheForm struct {
 	CleanOut bool
 	Paste    string // oui / non
 	Shred    string
-	Charger  string
 	CMOS     string
-	DVD      string // oui / non / absent
-	USBBad   string
+	DVD      string            // oui / non / absent
 	Checks   map[string]status // contrôles saisis à la main (ctrlManual)
 	Texts    map[string]string // précisions des lignes « Autre »
 	Notes    string
@@ -150,8 +148,8 @@ func newSession() *session {
 		Ref:     fmt.Sprintf("RC-%s", now.Format("2006-0102-1504")),
 		Started: now,
 		Form: ficheForm{
-			Aspect: "Occasion", Paste: "non", Shred: "non", Charger: "oui",
-			CMOS: "non", DVD: "absent", USBBad: "0",
+			Aspect: "Occasion", Paste: "non", Shred: "non",
+			CMOS: "non", DVD: "absent",
 			Checks: map[string]status{}, Texts: map[string]string{},
 		},
 		Tests:   testDefs(),

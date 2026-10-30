@@ -27,6 +27,10 @@ func absentHardware() map[string]string {
 	if simulated {
 		return out
 	}
+	if !hasBattery(sysPower) {
+		out["batterie"] = "Pas de batterie sur cette machine"
+		out["chargeur"] = "Pas de batterie sur cette machine"
+	}
 	if !hasWebcam() {
 		out["webcam"] = "Aucune caméra détectée sur cette machine"
 	}
@@ -311,6 +315,60 @@ func (p *usbPorts) adopt(dev string) string {
 	return port
 }
 
+// usbKernelError erreurs par lesquelles le noyau signale une prise qui ne marche pas
+var usbKernelError = regexp.MustCompile(`\busb ((?:usb)?\d+[-.\w]*): .*(device descriptor read|device not accepting address|unable to enumerate|Cannot enable|over-?current|cannot reset)`)
+
+// parseUSBErrors noms système (usb1-port3, 1-2, 1-4-port2) des erreurs USB du noyau
+func parseUSBErrors(log string) []string {
+	var out []string
+	for _, line := range strings.Split(log, "\n") {
+		if m := usbKernelError.FindStringSubmatch(line); m != nil {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+// portOfError prise désignée par un nom du noyau : port (usb1-port3) ou périphérique (1-2)
+func (p usbPorts) portOfError(name string) string {
+	for _, m := range []map[string]string{p.group, p.possible} {
+		if k, ok := m[name]; ok {
+			return k
+		}
+		if k := lookupPort(m, name); k != "" {
+			return k
+		}
+	}
+	return ""
+}
+
+// overCurrentPorts prises en surintensité avant même le test
+func (p usbPorts) overCurrentPorts() []string {
+	var out []string
+	files, _ := filepath.Glob(filepath.Join(sysUSB, "*", "*:1.0", "*-port*", "over_current_count"))
+	for _, f := range files {
+		if n, _ := strconv.Atoi(readTrim(f)); n > 0 {
+			if k := p.portOfError(filepath.Base(filepath.Dir(f))); k != "" {
+				out = append(out, k)
+			}
+		}
+	}
+	return out
+}
+
+// kernelLog journal du noyau (dmesg, droits root) ; vide si illisible
+func kernelLog() string {
+	tool := toolPath("dmesg")
+	if tool == "" {
+		return ""
+	}
+	out, err := exec.Command(tool).Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
 // usbDeviceOnPort périphérique branché sur un port (usb1-port3 → 1-3)
 func usbDeviceOnPort(port string) string {
 	name, num, ok := strings.Cut(port, "-port")
@@ -375,6 +433,7 @@ func usbDevices() map[string]string {
 // pas ceux d'Intel : un même processeur déclare les mêmes sur tout PC.
 type physicalPorts struct {
 	Video    map[string]int // type → nombre de prises ; vide : nombre inconnu
+	USBC     int            // prises USB-C listées par le BIOS
 	Why      string         // pourquoi le nombre est inconnu
 	USB      int            // < 0 : nombre inconnu
 	USBKinds map[string]int // type de prise USB → nombre
@@ -402,8 +461,9 @@ func readable(path string) bool {
 // readPhysicalPorts lit les prises ; dmidecode demande les droits root
 func readPhysicalPorts() physicalPorts {
 	var video map[string]int
-	var usb int
+	var usb, usbC int
 	why := ""
+	loadTypeCDriver()
 	switch tool := toolPath("dmidecode"); {
 	case tool == "":
 		why = "dmidecode n'est pas installé"
@@ -414,7 +474,7 @@ func readPhysicalPorts() physicalPorts {
 		if err != nil {
 			why = "dmidecode : " + err.Error()
 		} else {
-			video, usb = parseDMIConnectors(string(out))
+			video, usb, usbC = parseDMIConnectors(string(out))
 			why = "le BIOS ne liste pas les prises"
 		}
 	}
@@ -422,7 +482,20 @@ func readPhysicalPorts() physicalPorts {
 		video = gpuPorts(videoConnectors(), cardDrivers())
 	}
 	ports := readUSBPorts(usb)
-	return physicalPorts{Video: video, Why: why, USB: ports.total, USBKinds: ports.kindTotals()}
+	ports.typeC = max(ports.typeC, usbC)
+	return physicalPorts{Video: video, USBC: usbC, Why: why, USB: ports.total, USBKinds: ports.kindTotals()}
+}
+
+// loadTypeCDriver charge le pilote qui révèle les prises USB-C (en mémoire seulement,
+// rien n'est écrit sur le disque) : sans lui, /sys/class/typec reste vide
+func loadTypeCDriver() {
+	tool := toolPath("modprobe")
+	if tool == "" || !isAdmin() || simulated {
+		return
+	}
+	for _, mod := range []string{"typec_ucsi", "ucsi_acpi"} {
+		_ = exec.Command(tool, "-q", mod).Run()
+	}
 }
 
 // cardDrivers pilote de chaque carte graphique (card0 → i915)
@@ -458,12 +531,13 @@ func gpuPorts(conns []videoConnector, drivers map[string]string) map[string]int 
 }
 
 var (
-	dmiDP  = regexp.MustCompile(`displayport|display port|\b(mini[ -]?)?dp\d*\b`)
-	dmiVGA = regexp.MustCompile(`vga|d-?sub|db-15|\bcrt\b`)
+	dmiDP   = regexp.MustCompile(`displayport|display port|\b(mini[ -]?)?dp\d*\b`)
+	dmiVGA  = regexp.MustCompile(`vga|d-?sub|db-15|\bcrt\b`)
+	dmiUSBC = regexp.MustCompile(`usb[ -]?c\b|type[ -]?c|thunderbolt|\btbt\d*\b|usb4`)
 )
 
 // parseDMIConnectors compte les prises externes dans la sortie de dmidecode -t 8
-func parseDMIConnectors(out string) (video map[string]int, usb int) {
+func parseDMIConnectors(out string) (video map[string]int, usb, usbC int) {
 	video = map[string]int{}
 	for _, block := range strings.Split(out, "\n\n") {
 		values := map[string]string{}
@@ -486,11 +560,14 @@ func parseDMIConnectors(out string) (video map[string]int, usb int) {
 			video["DVI"]++
 		case dmiVGA.MatchString(desc):
 			video["VGA"]++
+		case dmiUSBC.MatchString(desc):
+			usb++
+			usbC++
 		case values["Port Type"] == "usb" || strings.Contains(ext, "usb"):
 			usb++
 		}
 	}
-	return video, usb
+	return video, usb, usbC
 }
 
 // ---- Connecteurs vidéo ----------------------------------------------------

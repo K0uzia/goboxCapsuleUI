@@ -4,8 +4,10 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -247,6 +249,128 @@ func TestRemoveTraces(t *testing.T) {
 	}
 	if _, err := os.Stat(other); err != nil {
 		t.Errorf("le dossier d'une autre application a été effacé : %v", err)
+	}
+}
+
+// Les erreurs du noyau désignent la prise défectueuse.
+func TestUSBKernelErrors(t *testing.T) {
+	log := `[  12.1] usb 1-2: device descriptor read/64, error -71
+[  13.0] usb usb1-port3: unable to enumerate USB device
+[  14.0] usb 1-4: new high-speed USB device number 5 using xhci_hcd
+[  15.0] usb 1-5.1: device not accepting address 7, error -71
+[  16.0] usb usb2-port1: over-current condition
+`
+	got := parseUSBErrors(log)
+	want := []string{"1-2", "usb1-port3", "1-5.1", "usb2-port1"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("erreurs : %v", got)
+	}
+	p := usbPorts{group: map[string]string{"usb1-port2": "usb1-port2", "usb1-port3": "usb1-port3", "usb2-port1": "usb1-port1", "usb1-port5": "usb1-port5"}, possible: map[string]string{}}
+	for name, port := range map[string]string{"1-2": "usb1-port2", "usb1-port3": "usb1-port3", "usb2-port1": "usb1-port1", "1-5.1": "usb1-port5", "9-9": ""} {
+		if got := p.portOfError(name); got != port {
+			t.Errorf("%s : %q, attendu %q", name, got, port)
+		}
+	}
+	s := newSession()
+	s.Results["ports"] = result{Status: statusOK, Data: map[string]string{"usb": "1 / 2", "usb_bad": "1 : USB 3.x"}}
+	if r := findRow(t, s, "Ports et périphériques", "USB défectueux"); r.Status != statusFail || r.Value != "1 : USB 3.x" {
+		t.Errorf("fiche : %+v", r)
+	}
+}
+
+// Un aperçu lancé par sudo reçoit SIGTERM (sudo le relaie) et son groupe s'arrête :
+// l'enfant ne doit pas survivre, sinon la caméra reste ouverte.
+func TestStopProcessStopsChildren(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "enfant")
+	cmd := exec.CommandContext(context.Background(), "sh", "-c", "sleep 60 & echo $! >"+pidFile+"; wait")
+	setProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	deadline := time.Now().Add(2 * time.Second)
+	for pid == 0 && time.Now().Before(deadline) {
+		b, _ := os.ReadFile(pidFile)
+		pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatal("enfant non lancé")
+	}
+	stopProcess(cmd)
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat("/proc/" + strconv.Itoa(pid)); err != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("l'enfant %d tourne encore", pid)
+}
+
+// Charge et chargeur sont distincts : sans chargeur, la charge n'est pas notée.
+func TestPower(t *testing.T) {
+	root := t.TempDir()
+	write := func(path, v string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, path), []byte(v+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if readCharger(root).Online || hasBattery(root) {
+		t.Fatal("dossier vide : ni chargeur ni batterie")
+	}
+	write("BAT0/type", "Battery")
+	write("AC/type", "Mains")
+	write("AC/online", "0")
+	write("ucsi/type", "USB")
+	write("ucsi/online", "1")
+	write("ucsi/voltage_max", "20000000")
+	write("ucsi/current_max", "3250000")
+	c := readCharger(root)
+	if !hasBattery(root) || !c.Online || c.Watts != 65 {
+		t.Fatalf("chargeur : %+v", c)
+	}
+	for state, want := range map[string]status{"Charging": statusOK, "Full": statusOK, "Not charging": statusWarn, "Discharging": statusFail} {
+		if got, _ := chargeVerdict(state, 20); got != want {
+			t.Errorf("%s : %v", state, got)
+		}
+	}
+	s := newSession()
+	s.Results["batterie"] = result{Status: statusNA, Detail: "Non testée : pas de chargeur", Data: map[string]string{"pill": pillNoCharger}}
+	s.Results["chargeur"] = result{Status: statusNA, Data: map[string]string{"pill": pillNoCharger}}
+	if r := findRow(t, s, "Batterie", "Test de charge"); r.pillLabel() != pillNoCharger {
+		t.Errorf("charge : %+v", r)
+	}
+	findRow(t, s, "Batterie", "Chargeur")
+	if v := s.verdict(); strings.Contains(v.Sub, "échec") {
+		t.Errorf("verdict : %+v", v)
+	}
+}
+
+func TestUpdateSteps(t *testing.T) {
+	for manager, want := range map[string]string{"apt-get": "upgrade", "dnf": "upgrade"} {
+		steps := updateSteps(manager)
+		if len(steps) != 2 || steps[1].Args[len(steps[1].Args)-1] != want {
+			t.Errorf("%s : %+v", manager, steps)
+		}
+	}
+	if updateSteps("pacman") != nil {
+		t.Error("gestionnaire inconnu : non pris en charge")
+	}
+}
+
+func TestParsePing(t *testing.T) {
+	out := "4 packets transmitted, 3 received, 25% packet loss, time 3004ms\nrtt min/avg/max/mdev = 10.1/12.6/15.2/2.0 ms\n"
+	p := parsePing(out)
+	if !p.ok || p.Loss != 25 || p.Avg != 12.6 || p.text() != "ping 13 ms, 25 % perdus" {
+		t.Errorf("ping : %+v, %s", p, p.text())
+	}
+	if parsePing("ping: connect: Network is unreachable").ok {
+		t.Error("sans résumé : pas de résultat")
 	}
 }
 
@@ -509,17 +633,22 @@ func TestParseDMIConnectors(t *testing.T) {
 		block("USB1", "Access Bus (USB)", "USB"), block("USB2", "Access Bus (USB)", "USB"),
 		block("Serial", "DB-9 male", "Serial Port 16550A Compatible"), block("Interne HDMI", "None", "Video Port"),
 	}, "\n")
-	video, usb := parseDMIConnectors(out)
+	video, usb, usbC := parseDMIConnectors(out)
 	want := map[string]int{"HDMI": 1, "DisplayPort": 2, "VGA": 1, "DVI": 1}
 	for typ, n := range want {
 		if video[typ] != n {
 			t.Errorf("%s : %d, attendu %d", typ, video[typ], n)
 		}
 	}
-	if usb != 2 {
-		t.Errorf("USB : %d, attendu 2", usb)
+	if usb != 2 || usbC != 0 {
+		t.Errorf("USB : %d, USB-C %d", usb, usbC)
 	}
-	if v, u := parseDMIConnectors(""); len(v) != 0 || u != 0 {
+	for _, name := range []string{"USB Type-C", "USB-C 1", "Thunderbolt 3"} {
+		if _, u, c := parseDMIConnectors(block(name, "Other", "USB")); u != 1 || c != 1 {
+			t.Errorf("%s : USB %d, USB-C %d", name, u, c)
+		}
+	}
+	if v, u, _ := parseDMIConnectors(""); len(v) != 0 || u != 0 {
 		t.Errorf("sortie vide : %v %d", v, u)
 	}
 }

@@ -102,12 +102,7 @@ func newFichePanel(s *session) *fichePanel {
 	two := func(a, b fyne.CanvasObject) fyne.CanvasObject {
 		return container.New(&respGrid{minCol: 235, cols: []int{2, 1}, gap: 18}, a, b)
 	}
-	usbBad := widget.NewEntry()
-	usbBad.SetText(s.Form.USBBad)
-	usbBad.SetPlaceHolder("Nombre")
-	usbBad.OnChanged = func(v string) { s.Form.USBBad = v }
 	manual := f.manualSection("Autres contrôles", ctrlManual)
-	manual.Add(formRow("USB défectueux", container.New(&widthLayout{w: 90}, f.pass(usbBad))))
 	controls := two(f.maintenance(), manual)
 
 	notes := widget.NewMultiLineEntry()
