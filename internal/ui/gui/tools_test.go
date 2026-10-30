@@ -225,8 +225,7 @@ func (b *boundsPen) LineTo(x, y float64)                         { b.add(x, y) }
 func (b *boundsPen) CurveBezierCubicTo(_, _, _, _, x, y float64) { b.add(x, y) }
 func (b *boundsPen) ClosePath()                                  {}
 
-// La fiche produit nomme le produit, sans adresse réseau ni nom système, et
-// reprend en tête ce qui ne va pas.
+// La fiche produit nomme le produit, sans adresse réseau ni nom système.
 func TestFicheSheet(t *testing.T) {
 	s := newSession()
 	s.Machine = machineInfo{Vendor: "HP", Product: "HP EliteBook 850 G3", Serial: "SN1"}
@@ -243,8 +242,8 @@ func TestFicheSheet(t *testing.T) {
 	if sh.Specs[0].Value != "Intel Core i5-6200U" || sh.Specs[1].Value != "232.9 Go SSD" {
 		t.Errorf("essentiel : %+v", sh.Specs)
 	}
-	if len(sh.Problems) != 1 || !strings.Contains(sh.Problems[0].Label, "Port carte SD") {
-		t.Errorf("à signaler : %+v", sh.Problems)
+	if strings.Contains(fmt.Sprintf("%+v", sh), "À signaler") {
+		t.Error("le résultat ne doit apparaître qu'avec son composant")
 	}
 	all := fmt.Sprintf("%+v", sh)
 	for _, absent := range []string{s.Ref, "ac:e2", "192.168", "enp0s31f6", "partition", "Tests gobox"} {

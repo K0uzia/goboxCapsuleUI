@@ -12,8 +12,8 @@ import (
 )
 
 // La fiche finale, composée directement en PDF comme une fiche produit de
-// boutique : le produit et sa note d'abord, l'essentiel, ce qui est à signaler,
-// puis le détail composant par composant. Colonnes équilibrées et taille du
+// boutique : le produit et sa note d'abord, l'essentiel, puis le détail
+// composant par composant. Colonnes équilibrées et taille du
 // texte choisie pour remplir une page A4 sans en déborder. Noir sur blanc pour
 // économiser l'encre : seul le mot de chaque résultat est en couleur.
 
@@ -25,7 +25,6 @@ type ficheSheet struct {
 	Grade, Verdict, Sub      string
 	Kind                     verdictKind
 	Specs                    []sheetSpec
-	Problems                 []ficheRow
 	Sections                 []ficheSection
 	Notes                    string
 }
@@ -153,11 +152,6 @@ func newFicheSheet(s *session) ficheSheet {
 			}
 			r = sheetRow(sec.Name, r)
 			kept.Rows = append(kept.Rows, r)
-			if r.Label == "Problème" || (r.Tested && (r.Status == statusWarn || r.Status == statusFail)) {
-				p := r
-				p.Label = sec.Name + " : " + r.Label
-				sh.Problems = append(sh.Problems, p)
-			}
 		}
 		if len(kept.Rows) > 0 {
 			sh.Sections = append(sh.Sections, kept)
@@ -409,17 +403,6 @@ func (p *sheetPDF) drawSpecs(y float64, specs []sheetSpec) float64 {
 	return y + 1
 }
 
-func (p *sheetPDF) problemsHeight(sh ficheSheet, w float64) float64 {
-	if len(sh.Problems) == 0 {
-		return 0
-	}
-	h := 6.2*p.scale + 3
-	for _, r := range sh.Problems {
-		h += p.rowHeight(r, w)
-	}
-	return h
-}
-
 func (p *sheetPDF) notesHeight(sh ficheSheet, w float64) float64 {
 	if sh.Notes == "" {
 		return 0
@@ -456,7 +439,7 @@ func measureSheet(sh ficheSheet, scale float64) (float64, []float64) {
 			right += h
 		}
 	}
-	return y + p.problemsHeight(sh, w) + max(left, right) + p.notesHeight(sh, w), heights
+	return y + max(left, right) + p.notesHeight(sh, w), heights
 }
 
 // writeSheet compose la fiche : la plus grande échelle qui tient sur une page
@@ -482,14 +465,6 @@ func writeSheet(w io.Writer, sh ficheSheet) error {
 	full := pageW - 2*pageMargin
 	y := p.drawHeader(sh)
 	y = p.drawSpecs(y, sh.Specs)
-
-	if len(sh.Problems) > 0 {
-		y += p.drawSectionTitle(pageMargin, y, full, "triangle-exclamation", "À signaler")
-		for _, r := range sh.Problems {
-			y += p.drawRow(pageMargin, y, full, r)
-		}
-		y += 3
-	}
 
 	cw := (full - colGap) / 2
 	k := splitColumns(heights)
