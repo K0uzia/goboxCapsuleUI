@@ -46,6 +46,14 @@ var (
 		{Label: "SMART SSD", TestID: "ssd"},
 		{Label: "SMART NVMe", TestID: "nvme"},
 	}
+	ctrlRadio = []ctrlItem{
+		{Label: "Wi-Fi", TestID: "wifi"},
+		{Label: "Bluetooth", TestID: "bluetooth"},
+		{Label: "Carte SIM", TestID: "sim"},
+	}
+	ctrlReader = []ctrlItem{
+		{Label: "Lecteur de puce", TestID: "lecteur"},
+	}
 	ctrlPower = []ctrlItem{
 		{Label: "Test de charge", TestID: "batterie"},
 		{Label: "Chargeur", TestID: "chargeur"},
@@ -302,6 +310,17 @@ func (s *session) ficheSections() []ficheSection {
 		}
 	}
 
+	// present retire les lignes d'un matériel absent de la machine
+	present := func(rows []ficheRow) []ficheRow {
+		var out []ficheRow
+		for _, row := range rows {
+			if row.Status != statusNA || row.Pill != "" {
+				out = append(out, row)
+			}
+		}
+		return out
+	}
+	periph = append(periph, present(s.itemRows(ctrlReader))...)
 	prep := append([]ficheRow{info("Aspect", strings.ToLower(fm.Aspect)), info("Nettoyage", cleaningText(fm)), info("Pile setup changée", fm.CMOS)}, s.itemRows(ctrlSystem)...)
 
 	// Du cœur de la machine vers l'extérieur, puis sa remise en état
@@ -317,7 +336,7 @@ func (s *session) ficheSections() []ficheSection {
 		{"Affichage", "tv", append(s.portRows(), s.manualRow(ctrlOtherVideo)...)},
 		{"Ports et périphériques", "plug", append(periph, s.manualRow(ctrlOther)...)},
 		{"Son", "volume-high", s.itemRows(ctrlSound)},
-		{"Cartes réseau", "wifi", []ficheRow{s.testRow("Test réseau", "reseau")}},
+		{"Cartes réseau", "wifi", append([]ficheRow{s.testRow("Test réseau", "reseau")}, present(s.itemRows(ctrlRadio))...)},
 		{"Préparation", "rocket", prep},
 	}
 	components := map[string]Component{}

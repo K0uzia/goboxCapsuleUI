@@ -278,6 +278,61 @@ func (p *pill) set(s status) {
 	p.text.Refresh()
 }
 
+// pulseDot puce qui pulse : ce qui reste à remplir pour commencer
+type pulseDot struct {
+	root       *fyne.Container
+	core, halo *canvas.Circle
+	anim       *fyne.Animation
+	running    bool
+}
+
+const pulseSize = 16
+
+func newPulseDot() *pulseDot {
+	p := &pulseDot{core: canvas.NewCircle(color.Transparent), halo: canvas.NewCircle(color.Transparent)}
+	p.root = container.New(&fixedLayout{size: fyne.NewSize(pulseSize, pulseSize)}, p.halo, p.core)
+	p.core.Resize(fyne.NewSize(8, 8))
+	p.core.Move(fyne.NewPos(4, 4))
+	p.anim = fyne.NewAnimation(1100*time.Millisecond, p.tick)
+	p.anim.RepeatCount = fyne.AnimationRepeatForever
+	p.anim.Curve = fyne.AnimationEaseOut
+	p.tick(0)
+	return p
+}
+
+func (p *pulseDot) tick(f float32) {
+	c := col(cAccent)
+	r, g, b, _ := c.RGBA()
+	d := 8 + f*(pulseSize-8)
+	p.core.FillColor = c
+	p.halo.FillColor = color.NRGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(150 * (1 - f))}
+	p.halo.Resize(fyne.NewSize(d, d))
+	p.halo.Move(fyne.NewPos((pulseSize-d)/2, (pulseSize-d)/2))
+	p.core.Refresh()
+	p.halo.Refresh()
+}
+
+// show affiche la puce et l'anime, ou la masque et l'arrête
+func (p *pulseDot) show(on bool) {
+	if on == p.root.Visible() && p.running == on {
+		return
+	}
+	p.running = on
+	if on {
+		p.root.Show()
+		p.anim.Start()
+		return
+	}
+	p.anim.Stop()
+	p.root.Hide()
+}
+
+// fixedLayout taille fixe ; les objets se placent eux-mêmes
+type fixedLayout struct{ size fyne.Size }
+
+func (l *fixedLayout) MinSize([]fyne.CanvasObject) fyne.Size { return l.size }
+func (l *fixedLayout) Layout([]fyne.CanvasObject, fyne.Size) {}
+
 // ---- Textes ---------------------------------------------------------------
 
 // caption petit intitulé en capitales (« MACHINE », « VERDICT »…)

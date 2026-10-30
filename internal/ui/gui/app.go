@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"gobox/internal/probe"
@@ -57,6 +58,14 @@ func Run() {
 			// SMART : rien à demander au technicien, lu dès l'ouverture
 			if simulated {
 				return
+			}
+			for _, auto := range autoScans {
+				r := auto.scan(context.Background(), func(string, ...any) {})
+				fyne.Do(func() {
+					if s.status(auto.id) == statusIdle || s.Results[auto.id].Data["auto"] == "1" {
+						s.setResult(auto.id, r)
+					}
+				})
 			}
 			for _, kind := range []string{"hdd", "ssd", "nvme"} {
 				r := smartScan(context.Background(), kind, func(string, ...any) {})
@@ -291,20 +300,23 @@ func showInfo(s *session, w fyne.Window) {
 		keys,
 		mutedNote("Icônes : Font Awesome Free (CC BY 4.0). Polices : Exo 2 et Share Tech Mono (SIL OFL 1.1)."),
 	)
-	d := dialog.NewCustom("À propos", "Fermer", container.New(&widthLayout{w: 460}, content), w)
-	d.Show()
+	showPopup(w, "À propos", content)
 }
 
 // showSettings réglages de la session (perdus au redémarrage du PC)
 func showSettings(w fyne.Window, f *fichePanel) {
-	choice := widget.NewRadioGroup([]string{"Sombre", "Clair"}, func(v string) {
-		fyne.CurrentApp().Settings().SetTheme(newTheme(v != "Clair"))
-	})
+	choice := widget.NewRadioGroup([]string{"Sombre", "Clair"}, nil)
 	choice.Horizontal = true
 	if isDark() {
 		choice.SetSelected("Sombre")
 	} else {
 		choice.SetSelected("Clair")
+	}
+	// après la sélection initiale : sinon chaque ouverture réapplique le thème et
+	// redessine toute l'application
+	choice.OnChanged = func(v string) {
+		themeApplied()
+		fyne.CurrentApp().Settings().SetTheme(newTheme(v != "Clair"))
 	}
 	detail := widget.NewCheck("Afficher le détail des tests confirmés", f.setDetailed)
 	detail.SetChecked(f.detailed)
@@ -313,8 +325,31 @@ func showSettings(w fyne.Window, f *fichePanel) {
 		formRow("Fiche", detail),
 		mutedNote("Valables jusqu'au redémarrage du PC : chaque lancement repart des réglages par défaut."),
 	)
-	d := dialog.NewCustom("Réglages", "Fermer", container.New(&widthLayout{w: 460}, content), w)
-	d.Show()
+	showPopup(w, "Réglages", content)
+}
+
+// themeApplied observé par les tests
+var themeApplied = func() {}
+
+// openPopup dernière fenêtre ouverte : un clic en dehors la masque (PopUp de Fyne non
+// modal, ce que ses dialogues ne permettent pas), Échap et son bouton aussi
+var openPopup *widget.PopUp
+
+func closePopup() {
+	if openPopup != nil {
+		openPopup.Hide()
+	}
+}
+
+// showPopup fenêtre centrée, qui se ferme par un clic en dehors
+func showPopup(w fyne.Window, title string, content fyne.CanvasObject) {
+	closePopup()
+	head := container.NewBorder(nil, nil, nil, iconButton(theme.CancelIcon(), closePopup), container.NewCenter(sectionTitle(title)))
+	body := container.New(&padLayout{h: 12, v: 8}, container.New(&widthLayout{w: 460}, container.NewVBox(head, content)))
+	openPopup = widget.NewPopUp(body, w.Canvas())
+	size := openPopup.MinSize()
+	cs := w.Canvas().Size()
+	openPopup.ShowAtPosition(fyne.NewPos((cs.Width-size.Width)/2, max((cs.Height-size.Height)/2, 0)))
 }
 
 // ratioLayout deux colonnes : gauche = left × largeur

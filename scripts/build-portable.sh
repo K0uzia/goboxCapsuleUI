@@ -5,7 +5,7 @@
 set -eu
 
 GO_BIN=$1 TAGS=$2 LDFLAGS=$3 OUTPUT=$4 MAIN_PKG=$5
-IMAGE=gobox-build:glibc2.28-outils
+IMAGE=gobox-build:glibc2.28-outils2
 MAX_GLIBC=2.28
 
 CACHE_DIR=${XDG_CACHE_HOME:-$HOME/.cache}/gobox-build

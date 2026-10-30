@@ -86,7 +86,7 @@ var testIcons = map[string]string{
 	"stress": "fire", "ports": "plug", "son": "volume-high", "reseau": "network-wired",
 	"clavier": "keyboard", "souris": "computer-mouse", "webcam": "camera", "sd": "sd-card",
 	"hdd": "hard-drive", "ssd": "memory", "nvme": "microchip",
-	"batterie": "battery-half", "chargeur": "bolt", "maj": "arrows-rotate",
+	"wifi": "wifi", "bluetooth": "bluetooth", "sim": "sim-card", "lecteur": "id-card", "batterie": "battery-half", "chargeur": "bolt", "maj": "arrows-rotate",
 }
 
 func testDefs() []*testDef {
@@ -99,6 +99,10 @@ func testDefs() []*testDef {
 		{ID: "souris", Title: "Souris", Category: catPeripherals, Desc: "Clics, défilement et pavé tactile", Run: runMouse},
 		{ID: "webcam", Title: "Webcam", Category: catPeripherals, Desc: "Aperçu de la caméra", Run: runWebcam},
 		{ID: "sd", Title: "Carte SD", Category: catPeripherals, Desc: "Détection d'une carte insérée", Run: runSD},
+		{ID: "wifi", Title: "Wi-Fi", Category: catPeripherals, Desc: "Carte reconnue et réseaux visibles", Run: runScan(wifiScan, "Carte simulée : 5 réseau(x) vu(s)")},
+		{ID: "bluetooth", Title: "Bluetooth", Category: catPeripherals, Desc: "Adaptateur reconnu et appareils visibles", Run: runScan(bluetoothScan, "2 appareil(s) vu(s)")},
+		{ID: "sim", Title: "SIM", Category: catPeripherals, Desc: "Modem reconnu ; la carte SIM n'est pas testée", Run: runScan(simScan, "Modem reconnu, carte SIM non testée")},
+		{ID: "lecteur", Title: "Puce", Category: catPeripherals, Desc: "Lecteur de carte à puce reconnu ; la carte n'est pas testée", Run: runScan(readerScan, "Lecteur reconnu, carte non testée")},
 		{ID: "batterie", Title: "Charge", Category: catPeripherals, Desc: "La batterie charge-t-elle, chargeur branché ?", Run: runBatteryCharge},
 		{ID: "chargeur", Title: "Chargeur", Category: catPeripherals, Desc: "Détection du chargeur, s'il y en a un", Run: runCharger},
 		{ID: "hdd", Title: "S. HDD", Category: catStorage, Desc: "État SMART des disques durs", Run: runSmart("hdd")},

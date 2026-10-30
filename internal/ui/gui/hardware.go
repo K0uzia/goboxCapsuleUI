@@ -27,6 +27,18 @@ func absentHardware() map[string]string {
 	if simulated {
 		return out
 	}
+	if len(wifiInterfaces(sysNet)) == 0 {
+		out["wifi"] = "Pas de Wi-Fi sur cette machine"
+	}
+	if len(bluetoothAdapters(sysBluetooth)) == 0 {
+		out["bluetooth"] = "Pas de Bluetooth sur cette machine"
+	}
+	if len(modemNames("/")) == 0 {
+		out["sim"] = "Pas de modem SIM sur cette machine"
+	}
+	if len(cardReaders()) == 0 {
+		out["lecteur"] = "Pas de lecteur de puce sur cette machine"
+	}
 	if !hasBattery(sysPower) {
 		out["batterie"] = "Pas de batterie sur cette machine"
 		out["chargeur"] = "Pas de batterie sur cette machine"

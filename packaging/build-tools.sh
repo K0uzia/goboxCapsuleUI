@@ -1,6 +1,6 @@
 #!/bin/sh
 # Prépare l'archive des outils embarqués dans le binaire (dans le conteneur de
-# compilation) : smartctl, dmidecode et lspci, avec leurs bibliothèques et licences.
+# compilation) : smartctl, dmidecode, lspci et iw, avec leurs bibliothèques et licences.
 # gobox l'extrait dans un dossier temporaire, effacé à sa fermeture.
 set -eu
 OUT=$1
@@ -29,9 +29,10 @@ WRAPPER
 }
 embed smartctl ''
 embed dmidecode ''
+embed iw ''
 embed lspci '-i "$D/share/pci.ids"'
 cp /usr/share/hwdata/pci.ids "$WORK/share/pci.ids"
-for pkg in smartmontools dmidecode pciutils; do
+for pkg in smartmontools dmidecode pciutils iw; do
 	mkdir -p "$WORK/licences/$pkg"
 	find /usr/share/doc/"$pkg"* /usr/share/licenses/"$pkg"* \( -name 'COPYING*' -o -name 'LICENSE*' \) -exec cp {} "$WORK/licences/$pkg/" \; 2>/dev/null || true
 	[ -n "$(ls "$WORK/licences/$pkg")" ] || { echo "Erreur : licence de $pkg introuvable" >&2; exit 1; }

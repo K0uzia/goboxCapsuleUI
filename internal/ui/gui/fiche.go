@@ -19,6 +19,8 @@ type fichePanel struct {
 	notes    *widget.Entry
 	techRing *tRect
 	techHint *tText
+	techDot  *pulseDot
+	cleanDot *pulseDot
 
 	counts       *tText
 	progress     *thinBar
@@ -65,7 +67,9 @@ func newFichePanel(s *session) *fichePanel {
 	f.techRing = newRect("", cAccent, 7)
 	f.techRing.StrokeWidth = 2
 	f.techHint = text("À remplir pour commencer", 12, true, cAccent)
+	f.techDot = newPulseDot()
 	techRow := container.NewHBox(
+		container.NewCenter(f.techDot.root),
 		container.NewVBox(layout.NewSpacer(), text("Fait par", 13, false, cMuted), layout.NewSpacer()),
 		container.New(&widthLayout{w: 260}, container.NewStack(tech, f.techRing)),
 		container.NewCenter(f.techHint),
@@ -83,11 +87,14 @@ func newFichePanel(s *session) *fichePanel {
 	aspect.SetSelected(s.Form.Aspect)
 	aspectBox := box(container.NewVBox(caption("Aspect"), aspect), cLine, cSurface)
 
-	cleanIn := widget.NewCheck("Intérieur", func(b bool) { s.Form.CleanIn = b })
+	f.cleanDot = newPulseDot()
+	showClean := func() { f.cleanDot.show(!s.Form.CleanIn && !s.Form.CleanOut) }
+	cleanIn := widget.NewCheck("Intérieur", func(b bool) { s.Form.CleanIn = b; showClean() })
 	cleanIn.SetChecked(s.Form.CleanIn)
-	cleanOut := widget.NewCheck("Extérieur", func(b bool) { s.Form.CleanOut = b })
+	cleanOut := widget.NewCheck("Extérieur", func(b bool) { s.Form.CleanOut = b; showClean() })
 	cleanOut.SetChecked(s.Form.CleanOut)
-	cleanBox := box(container.NewVBox(caption("Nettoyage"), cleanIn, cleanOut), cLine, cSurface)
+	showClean()
+	cleanBox := box(container.NewVBox(container.NewHBox(caption("Nettoyage"), container.NewCenter(f.cleanDot.root)), cleanIn, cleanOut), cLine, cSurface)
 
 	f.verdictCap = caption("Verdict")
 	f.verdictText = text("", 15, true, cText)
@@ -304,6 +311,7 @@ func inventoryCard(c ficheSection) fyne.CanvasObject {
 func (f *fichePanel) showTechHint() {
 	f.techRing.Hidden = f.s.Form.Tech != ""
 	f.techHint.Hidden = f.techRing.Hidden
+	f.techDot.show(f.s.Form.Tech == "")
 	f.techRing.Refresh()
 	f.techHint.Refresh()
 }

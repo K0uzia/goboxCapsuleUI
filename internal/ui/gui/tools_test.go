@@ -374,6 +374,118 @@ func TestParsePing(t *testing.T) {
 	}
 }
 
+// Wi-Fi, Bluetooth, modem et lecteur de puce : présents ou absents selon le système,
+// « DÉTECTÉ » tant qu'aucune carte n'a été lue, et rien sur la fiche si absents.
+func TestRadioDetection(t *testing.T) {
+	root := t.TempDir()
+	mk := func(path string, v string) {
+		t.Helper()
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(v+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("net/wlp2s0/wireless/x", "")
+	mk("net/enp1s0/type", "1")
+	if got := wifiInterfaces(filepath.Join(root, "net")); len(got) != 1 || got[0] != "wlp2s0" {
+		t.Errorf("Wi-Fi : %v", got)
+	}
+	mk("bt/hci0/x", "")
+	mk("bt/hci0:256/x", "")
+	if got := bluetoothAdapters(filepath.Join(root, "bt")); len(got) != 1 || got[0] != "hci0" {
+		t.Errorf("Bluetooth : %v", got)
+	}
+	mk("rf/rfkill0/type", "wlan")
+	mk("rf/rfkill0/soft", "0")
+	mk("rf/rfkill0/hard", "1")
+	soft, hard := rfkillState(filepath.Join(root, "rf"), "wlan")
+	if soft || !hard || blockedDetail(soft, hard) == "" {
+		t.Errorf("rfkill : %v %v", soft, hard)
+	}
+	if s, h := rfkillState(filepath.Join(root, "rf"), "bluetooth"); s || h || blockedDetail(s, h) != "" {
+		t.Errorf("rfkill bluetooth : %v %v", s, h)
+	}
+	mk("usb/1-4/product", "Lecteur Test")
+	mk("usb/1-4:1.0/bInterfaceClass", "0b")
+	mk("usb/1-5:1.0/bInterfaceClass", "08")
+	if got := usbCardReaders(filepath.Join(root, "usb")); len(got) != 1 || got[0] != "Lecteur Test" {
+		t.Errorf("lecteur USB : %v", got)
+	}
+	got := parseSmartCardPCI("00:1f.3 Audio device: Intel\n03:00.0 Unassigned class: O2 Micro SmartCard Reader (rev 01)\n")
+	if len(got) != 1 || !strings.Contains(got[0], "SmartCard") {
+		t.Errorf("lecteur PCI : %v", got)
+	}
+	mk("sys/class/wwan/wwan0/x", "")
+	if len(modemNames(root)) != 1 {
+		t.Errorf("modem : %v", modemNames(root))
+	}
+	if countNetworks("iw", "BSS aa(on wlan0)\n\tfreq: 1\nBSS bb(on wlan0)\n") != 2 || countNetworks("nmcli", "aa\nbb\n\n") != 2 {
+		t.Error("nombre de réseaux")
+	}
+	s := newSession()
+	s.Results["wifi"] = result{Status: statusOK, Detail: "x"}
+	s.Results["sim"] = result{Status: statusOK, Data: map[string]string{"pill": pillDetected}}
+	s.Results["lecteur"] = result{Status: statusNA}
+	findRow(t, s, "Cartes réseau", "Wi-Fi")
+	if r := findRow(t, s, "Cartes réseau", "Carte SIM"); r.pillLabel() != pillDetected {
+		t.Errorf("SIM : %+v", r)
+	}
+	for _, sec := range s.ficheSections() {
+		for _, r := range sec.Rows {
+			if r.Label == "Lecteur de puce" {
+				t.Error("un lecteur absent ne paraît pas sur la fiche")
+			}
+		}
+	}
+}
+
+// La puce pulse tant que le technicien et le nettoyage ne sont pas remplis.
+func TestPulseDots(t *testing.T) {
+	a := test.NewApp()
+	defer a.Quit()
+	a.Settings().SetTheme(newTheme(true))
+	s := newSession()
+	f := newFichePanel(s)
+	if !f.techDot.root.Visible() || !f.cleanDot.root.Visible() {
+		t.Fatal("les deux puces doivent être visibles au départ")
+	}
+	s.Form.Tech = "Alex"
+	f.showTechHint()
+	if f.techDot.root.Visible() {
+		t.Error("technicien rempli : puce masquée")
+	}
+}
+
+// Un clic hors de la fenêtre de réglages la ferme, et l'ouvrir ne réapplique pas le
+// thème (toute l'application se redessinait à chaque ouverture).
+func TestPopupClosesOnOutsideTap(t *testing.T) {
+	a := test.NewApp()
+	defer a.Quit()
+	a.Settings().SetTheme(newTheme(true))
+	w := a.NewWindow("test")
+	s := newSession()
+	f := newFichePanel(s)
+	w.SetContent(f.root)
+	w.Resize(fyne.NewSize(1000, 800))
+	applied := 0
+	themeApplied = func() { applied++ }
+	defer func() { themeApplied = func() {} }()
+	showSettings(w, f)
+	if applied != 0 {
+		t.Errorf("thème réappliqué %d fois à l'ouverture", applied)
+	}
+	if openPopup == nil || !openPopup.Visible() {
+		t.Fatal("réglages non affichés")
+	}
+	test.TapCanvas(w.Canvas(), fyne.NewPos(3, 3))
+	if openPopup.Visible() {
+		t.Fatal("un clic en dehors doit fermer la fenêtre")
+	}
+}
+
 // Sans liste du BIOS, seules les cartes non Intel décrivent la machine.
 func TestGPUPorts(t *testing.T) {
 	conns := []videoConnector{{Type: "DisplayPort"}, {Type: "HDMI"}, {Type: "HDMI"}, {Type: internalScreen}}

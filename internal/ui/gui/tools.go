@@ -185,6 +185,10 @@ func (p *toolsPanel) close(save bool) {
 // au menu une fois le résultat affiché.
 // Inactifs pendant le test clavier, qui a besoin de toutes les touches.
 func (p *toolsPanel) typedKey(e *fyne.KeyEvent) {
+	if e.Name == fyne.KeyEscape && openPopup != nil && openPopup.Visible() {
+		closePopup()
+		return
+	}
 	if p.active == nil || p.active.ID == "clavier" {
 		return
 	}

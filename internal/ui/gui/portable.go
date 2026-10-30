@@ -118,7 +118,7 @@ func CheckTools() int {
 	for _, t := range []struct {
 		name string
 		args []string
-	}{{"smartctl", []string{"--version"}}, {"dmidecode", []string{"--version"}}, {"lspci", nil}} {
+	}{{"smartctl", []string{"--version"}}, {"dmidecode", []string{"--version"}}, {"lspci", nil}, {"iw", []string{"--version"}}} {
 		path := toolPath(t.name)
 		if path == "" {
 			fmt.Printf("%-10s introuvable\n", t.name)

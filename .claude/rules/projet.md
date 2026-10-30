@@ -71,6 +71,8 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-10-30 | Tests Clone et Déploiement retirés ; MAJ réelle (apt-get ou dnf : update puis upgrade) | demande de l'humain |
 | 2026-10-30 | Tests distincts Charge et Chargeur ; sans chargeur : « SANS CHARGEUR », sans effet sur le verdict | un PC arrive souvent sans chargeur |
 | 2026-10-30 | USB défectueux détectés automatiquement (journal du noyau, surintensité) au test des ports, plus de saisie | demande de l'humain |
+| 2026-10-30 | Tests Wi-Fi, Bluetooth, SIM et lecteur de puce : matériel reconnu, lancés à l'ouverture, « DÉTECTÉ » quand aucune carte n'est lue, absents de la fiche sans le matériel | l'atelier n'a pas toujours de carte à insérer |
+| 2026-10-30 | Puce qui pulse sur le technicien et le nettoyage tant qu'ils ne sont pas remplis (nettoyage : au moins une case) | demande de l'humain |
 | 2026-10-30 | Ping dans le test réseau (1.1.1.1, latence et pertes) | demande de l'humain, sens à confirmer |
 | 2026-10-27 | Tracebay-Autonome (tout sur un poste, système de licence) : source principale pour la logique ; Tracebay (serveur séparé sur le réseau) : source pour le fonctionnement en réseau | réponse d'interview |
 
