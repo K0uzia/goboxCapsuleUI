@@ -339,26 +339,22 @@ func netChip(iface string) string {
 	return pciName(filepath.Base(dev))
 }
 
-// collectDisplay écran intégré et sorties vidéo, connectées ou non
+// collectDisplay écran intégré ; les prises vidéo et leur résultat sont ajoutés
+// par la fiche (portRows)
 func collectDisplay() Component {
 	c := Component{Name: "Affichage", Icon: "tv"}
-	conns := videoConnectors()
-	if len(conns) == 0 {
-		c.Summary = "Aucune sortie détectée"
-		return c
-	}
 	connected := 0
-	for _, v := range conns {
-		state := "déconnecté"
+	for _, v := range videoConnectors() {
 		if v.Connected {
-			state = strings.TrimSpace("connecté " + v.Mode)
 			connected++
 		}
-		label := v.Type + " (" + v.Name + ")"
 		if v.Type == internalScreen {
-			label = internalScreen
+			state := "déconnecté"
+			if v.Connected {
+				state = strings.TrimSpace("connecté " + v.Mode)
+			}
+			c.Fields = append(c.Fields, Field{internalScreen, state})
 		}
-		c.Fields = append(c.Fields, Field{label, state})
 	}
 	c.Summary = fmt.Sprintf("%d écran(s) connecté(s)", connected)
 	return c

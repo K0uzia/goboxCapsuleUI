@@ -45,9 +45,9 @@ func Run() {
 	// Inventaire en tâche de fond (dmidecode, sysfs… peuvent prendre 1 à 2 s)
 	a.Lifecycle().SetOnStarted(func() {
 		go func() {
-			m, inv, absent := readMachine(), collectInventory(), absentHardware()
+			m, inv, ports, absent := readMachine(), collectInventory(), readPhysicalPorts(), absentHardware()
 			fyne.Do(func() {
-				s.Machine, s.Inventory = m, inv
+				s.Machine, s.Inventory, s.Ports = m, inv, ports
 				s.markAbsent(absent)
 				s.changed()
 			})

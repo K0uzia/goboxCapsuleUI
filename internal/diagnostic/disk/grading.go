@@ -1,6 +1,8 @@
 package disk
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"gobox/internal/diagnostic/common"
@@ -34,35 +36,45 @@ type DiskGradingCriteria struct {
 
 // DefaultDiskGradingCriteria retourne les critères par défaut
 func DefaultDiskGradingCriteria() DiskGradingCriteria {
-	// TODO: Retourne struct avec :
-	// MinSizeForA: 200.0
-	// MinSizeForB: 120.0
-	// MinSizeForC: 60.0
-	// SSDMinGrade: common.GradeB
+	return DiskGradingCriteria{
+		MinSizeForA: 200.0,
+		MinSizeForB: 120.0,
+		MinSizeForC: 60.0,
+		SSDMinGrade: common.GradeB,
+	}
 }
 
-// ComputeGrade calcule le grade du disque
+// ComputeGrade calcule le grade du disque : des partitions résiduelles ou une
+// taille sous le minimum donnent F, sinon la taille décide, et un SSD ne descend
+// pas sous SSDMinGrade
 func ComputeGrade(
 	criteria DiskGradingCriteria,
 	diskType string,
 	sizeGB float64,
 	hasPartitions bool,
 ) common.Grade {
-	// TODO: Implémente la logique :
-	// 1. Si hasPartitions == true → return common.GradeF
-	// 2. Si sizeGB < criteria.MinSizeForC → return common.GradeF
-	// 3. Si diskType == "SSD" et sizeGB >= criteria.MinSizeForA → return common.GradeA
-	// 4. Sinon, utilise gradeFromSize(criteria, sizeGB)
-	// 5. Si diskType == "SSD", applique SSDMinGrade (ne jamais descendre sous B)
+	if hasPartitions || sizeGB < criteria.MinSizeForC {
+		return common.GradeF
+	}
+	grade := gradeFromSize(criteria, sizeGB)
+	if diskType == "SSD" && grade.ToScore() < criteria.SSDMinGrade.ToScore() {
+		return criteria.SSDMinGrade
+	}
+	return grade
 }
 
 // gradeFromSize calcule le grade selon la taille uniquement
 func gradeFromSize(criteria DiskGradingCriteria, sizeGB float64) common.Grade {
-	// TODO: Switch comme gradeFromHealth dans Battery
-	// >= MinSizeForA → A
-	// >= MinSizeForB → B
-	// >= MinSizeForC → C
-	// Sinon → F
+	switch {
+	case sizeGB >= criteria.MinSizeForA:
+		return common.GradeA
+	case sizeGB >= criteria.MinSizeForB:
+		return common.GradeB
+	case sizeGB >= criteria.MinSizeForC:
+		return common.GradeC
+	default:
+		return common.GradeF
+	}
 }
 
 // DetectIssues détecte les problèmes du disque
@@ -73,8 +85,15 @@ func DetectIssues(
 	partitionList []string,
 	criteria DiskGradingCriteria,
 ) []string {
-	// TODO: Retourne []string{} et ajoute des issues si :
-	// - hasPartitions == true → "Partitions résiduelles détectées: [...]"
-	// - sizeGB < criteria.MinSizeForC → "Disque trop petit (< 60 GB)"
-	// - sizeGB < criteria.MinSizeForB → "Capacité limitée (< 120 GB)"
+	issues := []string{}
+	if hasPartitions {
+		issues = append(issues, fmt.Sprintf("Partitions résiduelles détectées: [%s]", strings.Join(partitionList, ", ")))
+	}
+	switch {
+	case sizeGB < criteria.MinSizeForC:
+		issues = append(issues, fmt.Sprintf("Disque trop petit (< %.0f GB)", criteria.MinSizeForC))
+	case sizeGB < criteria.MinSizeForB:
+		issues = append(issues, fmt.Sprintf("Capacité limitée (< %.0f GB)", criteria.MinSizeForB))
+	}
+	return issues
 }

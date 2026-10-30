@@ -156,20 +156,23 @@ func internalDisks() []blockDisk {
 
 // ---- Ports USB physiques --------------------------------------------------
 
-// usbPorts ports USB accessibles, vus par le système : ports des contrôleurs
-// et des concentrateurs internes, sauf ceux déclarés « câblés » (webcam,
-// Bluetooth…) ou « non utilisés ». Un port USB 3 apparaît deux fois (bus
-// USB 2 et bus USB 3, reliés par « peer ») : il ne compte qu'une fois.
+// usbPorts ports USB de la machine. Le contrôleur en déclare plus qu'il n'y a
+// de prises : seul le microprogramme (ACPI, connect_type) dit lesquelles sont
+// accessibles. Un port USB 3 apparaît deux fois (bus USB 2 et bus USB 3, reliés
+// par « peer ») : il ne compte qu'une fois. total < 0 : nombre inconnu.
 type usbPorts struct {
-	group map[string]string // nom du port sysfs (usb1-port3, 1-4-port2) → port physique
-	total int
+	group    map[string]string // nom du port sysfs (usb1-port3, 1-4-port2) → prise
+	possible map[string]string // type non renseigné : prise seulement si on y branche
+	total    int
+	fromACPI bool
 }
 
-func readUSBPorts() usbPorts {
-	p := usbPorts{group: map[string]string{}}
+// readUSBPorts lit les ports ; dmiUSB (prises listées par le BIOS) ne sert que
+// si le microprogramme ne renseigne aucun port
+func readUSBPorts(dmiUSB int) usbPorts {
+	p := usbPorts{group: map[string]string{}, possible: map[string]string{}}
 	// concentrateurs : contrôleurs (usbN), et hubs branchés sur un port câblé
 	hubs, _ := filepath.Glob(filepath.Join(sysUSB, "usb*"))
-	internal := map[string]bool{}
 	for len(hubs) > 0 {
 		hub := hubs[0]
 		hubs = hubs[1:]
@@ -180,30 +183,67 @@ func readUSBPorts() usbPorts {
 		}
 		for _, port := range ports {
 			name := filepath.Base(port)
-			switch readTrim(filepath.Join(port, "connect_type")) {
-			case "not used":
-				continue
-			case "hardwired":
-				// un hub interne derrière ce port porte peut-être les prises
-				if dev := usbDeviceOnPort(name); dev != "" && readTrim(filepath.Join(sysUSB, dev, "bDeviceClass")) == "09" {
-					internal[dev] = true
-					hubs = append(hubs, filepath.Join(sysUSB, dev))
-				}
-				continue
-			}
 			key := name
 			if peer, err := os.Readlink(filepath.Join(port, "peer")); err == nil && filepath.Base(peer) < key {
 				key = filepath.Base(peer)
 			}
-			p.group[name] = key
+			switch readTrim(filepath.Join(port, "connect_type")) {
+			case "not used":
+			case "hardwired":
+				// un hub interne derrière ce port porte peut-être les prises
+				if dev := usbDeviceOnPort(name); dev != "" && readTrim(filepath.Join(sysUSB, dev, "bDeviceClass")) == "09" {
+					hubs = append(hubs, filepath.Join(sysUSB, dev))
+				}
+			case "hotplug":
+				p.group[name] = key
+			default:
+				p.possible[name] = key
+			}
 		}
 	}
+	p.finish(dmiUSB)
+	return p
+}
+
+// finish compte les prises : la moitié USB 3 non renseignée d'une prise connue
+// en fait partie
+func (p *usbPorts) finish(dmiUSB int) {
 	seen := map[string]bool{}
 	for _, k := range p.group {
 		seen[k] = true
 	}
-	p.total = len(seen)
-	return p
+	for name, k := range p.possible {
+		if seen[k] {
+			p.group[name] = k
+			delete(p.possible, name)
+		}
+	}
+	p.total, p.fromACPI = len(seen), len(seen) > 0
+	if !p.fromACPI {
+		p.total = -1
+		if dmiUSB > 0 {
+			p.total = dmiUSB
+		}
+	}
+}
+
+// adopt un périphérique vient d'être branché sur un port non renseigné : c'est
+// donc une prise. Rend la prise, "" si le port reste inconnu.
+func (p *usbPorts) adopt(dev string) string {
+	port := lookupPort(p.possible, dev)
+	if port == "" {
+		return ""
+	}
+	for name, k := range p.possible {
+		if k == port {
+			p.group[name] = k
+			delete(p.possible, name)
+		}
+	}
+	if p.fromACPI {
+		p.total++
+	}
+	return port
 }
 
 // usbDeviceOnPort périphérique branché sur un port (usb1-port3 → 1-3)
@@ -222,7 +262,9 @@ var usbDevName = regexp.MustCompile(`^(\d+)-([\d.]+)$`)
 
 // portOf port physique sur lequel est branché un périphérique (1-3.2 :
 // port 3 du contrôleur 1, ou port 2 du hub interne 1-3), "" si inconnu
-func (p usbPorts) portOf(dev string) string {
+func (p usbPorts) portOf(dev string) string { return lookupPort(p.group, dev) }
+
+func lookupPort(ports map[string]string, dev string) string {
 	m := usbDevName.FindStringSubmatch(dev)
 	if m == nil {
 		return ""
@@ -233,7 +275,7 @@ func (p usbPorts) portOf(dev string) string {
 		if i > 0 {
 			parent = bus + "-" + strings.Join(chain[:i], ".")
 		}
-		if g, ok := p.group[parent+"-port"+chain[i]]; ok {
+		if g, ok := ports[parent+"-port"+chain[i]]; ok {
 			return g
 		}
 	}
@@ -261,6 +303,62 @@ func usbDevices() map[string]string {
 	return devs
 }
 
+// ---- Prises physiques (BIOS) ----------------------------------------------
+
+// physicalPorts prises de la machine. La carte graphique ne les connaît pas :
+// un même processeur déclare les mêmes connecteurs sur tout PC (3 DP + 3 HDMI,
+// VGA par pont vu comme DP). La liste du BIOS (DMI type 8) décrit la carte mère.
+type physicalPorts struct {
+	Video map[string]int // type → nombre de prises ; vide : nombre inconnu
+	USB   int            // < 0 : nombre inconnu
+}
+
+// readPhysicalPorts lit les prises ; dmidecode demande les droits root
+func readPhysicalPorts() physicalPorts {
+	var video map[string]int
+	var usb int
+	if out, err := exec.Command("dmidecode", "-t", "8").Output(); err == nil {
+		video, usb = parseDMIConnectors(string(out))
+	}
+	return physicalPorts{Video: video, USB: readUSBPorts(usb).total}
+}
+
+var (
+	dmiDP  = regexp.MustCompile(`displayport|display port|\b(mini[ -]?)?dp\d*\b`)
+	dmiVGA = regexp.MustCompile(`vga|d-?sub|db-15|\bcrt\b`)
+)
+
+// parseDMIConnectors compte les prises externes dans la sortie de dmidecode -t 8
+func parseDMIConnectors(out string) (video map[string]int, usb int) {
+	video = map[string]int{}
+	for _, block := range strings.Split(out, "\n\n") {
+		values := map[string]string{}
+		for _, line := range strings.Split(block, "\n") {
+			if k, v, ok := strings.Cut(strings.TrimSpace(line), ": "); ok {
+				values[k] = strings.ToLower(v)
+			}
+		}
+		ext := values["External Connector Type"]
+		if ext == "" || ext == "none" {
+			continue
+		}
+		desc := values["External Reference Designator"] + " " + values["Internal Reference Designator"] + " " + ext
+		switch {
+		case strings.Contains(desc, "hdmi"):
+			video["HDMI"]++
+		case dmiDP.MatchString(desc):
+			video["DisplayPort"]++
+		case strings.Contains(desc, "dvi"):
+			video["DVI"]++
+		case dmiVGA.MatchString(desc):
+			video["VGA"]++
+		case values["Port Type"] == "usb" || strings.Contains(ext, "usb"):
+			usb++
+		}
+	}
+	return video, usb
+}
+
 // ---- Connecteurs vidéo ----------------------------------------------------
 
 // videoConnector connecteur déclaré par la carte graphique
@@ -271,7 +369,7 @@ type videoConnector struct {
 	Mode      string // résolution de l'écran branché (1920x1080)
 }
 
-// videoTypes types de sorties externes, dans l'ordre de la fiche papier
+// videoTypes types de sorties externes, dans l'ordre de la fiche
 var videoTypes = []string{"HDMI", "DisplayPort", "VGA", "DVI"}
 
 const internalScreen = "Écran intégré"

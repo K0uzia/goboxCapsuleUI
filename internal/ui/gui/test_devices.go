@@ -25,7 +25,8 @@ import (
 
 // ---- Ports USB et sorties vidéo -------------------------------------------
 
-// portTile compteur « testés / détectés » d'un type de port
+// portTile compteur « testés / présents » d'un type de port ; total < 0 : le
+// nombre de prises n'est pas connu, seuls les branchements sont comptés
 type portTile struct {
 	root          fyne.CanvasObject
 	bg            *tRect
@@ -47,9 +48,17 @@ func newPortTile(ico, label string, total int) *portTile {
 
 func (p *portTile) set(tested int) {
 	p.tested = tested
+	if p.total >= 0 {
+		p.total = max(p.total, tested) // une prise branchée existe, même non listée
+	}
 	p.count.SetText(fmt.Sprintf("%d / %d", tested, p.total))
 	p.bar.set(float32(tested) / float32(max(p.total, 1)))
 	switch {
+	case p.total < 0:
+		p.count.SetText(fmt.Sprintf("%d", tested))
+		p.bar.set(0)
+		p.bg.setRoles(cSurface2, cLine)
+		p.count.Role, p.status.Text = cText, "Nombre de prises non lu"
 	case tested >= p.total:
 		p.bg.setRoles(cSuccessBg, cSuccess)
 		p.count.Role, p.status.Text = cSuccess, "Tous testés"
@@ -64,15 +73,27 @@ func (p *portTile) set(tested int) {
 	p.status.Refresh()
 }
 
+// portCount valeur d'un port dans Result.Data : « 2 / 3 », « 2 / ? » si le
+// nombre de prises n'est pas connu
+func portCount(tested, total int) string {
+	if total < 0 {
+		return fmt.Sprintf("%d / ?", tested)
+	}
+	return fmt.Sprintf("%d / %d", tested, max(total, tested))
+}
+
 func runPorts(t *testCtx) result {
 	t.progress(-1)
-	usb := readUSBPorts()
+	phys := readPhysicalPorts()
+	usb := readUSBPorts(max(phys.USB, 0))
 	conns := videoConnectors()
 	if simulated {
 		t.markSimulated()
-		usb = usbPorts{group: map[string]string{}, total: 4}
+		usb = usbPorts{group: map[string]string{}, possible: map[string]string{}, total: 4}
+		phys.Video = map[string]int{"HDMI": 1, "VGA": 1}
 		conns = []videoConnector{{Name: "HDMI-A-1", Type: "HDMI"}, {Name: "VGA-1", Type: "VGA"}, {Name: "eDP-1", Type: internalScreen, Connected: true, Mode: "1920x1080"}}
 	}
+	videoKnown := len(phys.Video) > 0
 
 	// un port déjà occupé (clavier, souris, écran) est un port qui marche
 	usbTested := map[string]bool{}
@@ -82,7 +103,10 @@ func runPorts(t *testCtx) result {
 			usbTested[port] = true
 		}
 	}
-	videoTotal, videoTested := map[string]int{}, map[string]map[string]bool{}
+	videoTested := map[string]map[string]bool{}
+	for _, typ := range videoTypes {
+		videoTested[typ] = map[string]bool{}
+	}
 	var screen string
 	for _, c := range conns {
 		if c.Type == internalScreen {
@@ -92,31 +116,38 @@ func runPorts(t *testCtx) result {
 			}
 			continue
 		}
-		videoTotal[c.Type]++
-		if videoTested[c.Type] == nil {
-			videoTested[c.Type] = map[string]bool{}
-		}
 		if c.Connected {
 			videoTested[c.Type][c.Name] = true
 		}
 	}
-	t.log("%d port(s) USB détecté(s), dont %d déjà occupé(s)", usb.total, len(usbTested))
+	videoTotal := func(typ string) int {
+		if !videoKnown {
+			return -1
+		}
+		return phys.Video[typ]
+	}
+	if usb.total < 0 {
+		t.log("USB : le microprogramme n'indique pas les prises, seuls les branchements sont comptés")
+	} else {
+		t.log("%d prise(s) USB, dont %d déjà occupée(s)", usb.total, len(usbTested))
+	}
+	if !videoKnown {
+		t.log("Vidéo : le BIOS ne liste pas les prises (ou droits administrateur manquants), seuls les branchements sont comptés")
+	}
 	for _, typ := range videoTypes {
-		if videoTotal[typ] > 0 {
-			t.log("%s : %d connecteur(s) déclaré(s) par la carte graphique", typ, videoTotal[typ])
+		if n := videoTotal(typ); n > 0 {
+			t.log("%s : %d prise(s) listée(s) par le BIOS", typ, n)
 		}
 	}
 
 	tiles := map[string]*portTile{}
 	t.panel(func() fyne.CanvasObject {
 		var objs []fyne.CanvasObject
-		if usb.total > 0 {
-			tiles["USB"] = newPortTile("usb", "USB", usb.total)
-			objs = append(objs, tiles["USB"].root)
-		}
+		tiles["USB"] = newPortTile("usb", "USB", usb.total)
+		objs = append(objs, tiles["USB"].root)
 		for _, typ := range videoTypes {
-			if videoTotal[typ] > 0 {
-				tiles[typ] = newPortTile("display", typ, videoTotal[typ])
+			if n := videoTotal(typ); n != 0 || len(videoTested[typ]) > 0 {
+				tiles[typ] = newPortTile("display", typ, n)
 				objs = append(objs, tiles[typ].root)
 			}
 		}
@@ -127,12 +158,12 @@ func runPorts(t *testCtx) result {
 		if screen != "" {
 			content.Add(listRow(container.NewHBox(iconOf("computer", cMuted, 14), text(internalScreen, 13, false, cText)), text(screen, 13, true, cText)))
 		}
-		content.Add(mutedNote("La carte graphique peut déclarer plus de connecteurs qu'il n'y en a sur la machine : seuls ceux présents sont à tester."))
 		return content
 	})
 	update := func() {
 		t.ui(func() {
 			if tl := tiles["USB"]; tl != nil {
+				tl.total = usb.total
 				tl.set(len(usbTested))
 			}
 			for typ, set := range videoTested {
@@ -153,11 +184,11 @@ func runPorts(t *testCtx) result {
 			return result{}
 		case s := <-answer:
 			t.clearAsk()
-			data := map[string]string{"usb": fmt.Sprintf("%d / %d", len(usbTested), usb.total)}
+			data := map[string]string{"usb": portCount(len(usbTested), usb.total)}
 			parts := []string{"USB " + data["usb"]}
 			for _, typ := range videoTypes {
-				if n := videoTotal[typ]; n > 0 {
-					data[typ] = fmt.Sprintf("%d / %d", len(videoTested[typ]), n)
+				if n := videoTotal(typ); n > 0 || len(videoTested[typ]) > 0 {
+					data[typ] = portCount(len(videoTested[typ]), n)
 					parts = append(parts, typ+" "+data[typ])
 				}
 			}
@@ -172,6 +203,9 @@ func runPorts(t *testCtx) result {
 				}
 				known[dev] = name
 				port := usb.portOf(dev)
+				if port == "" {
+					port = usb.adopt(dev)
+				}
 				switch {
 				case port == "":
 					t.log("USB : %s (port non identifié)", name)
@@ -179,7 +213,7 @@ func runPorts(t *testCtx) result {
 					t.log("USB : %s, port déjà testé", name)
 				default:
 					usbTested[port] = true
-					t.log("USB : %s, port %d / %d", name, len(usbTested), usb.total)
+					t.log("USB : %s, %d prise(s) testée(s)", name, len(usbTested))
 				}
 			}
 			for _, c := range videoConnectors() {
@@ -810,13 +844,18 @@ func userCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 	}
 	runtime := "/run/user/" + uid
 	env := []string{
-		"-u", user, "env",
+		"-H", "-u", user, "env",
 		"DISPLAY=" + os.Getenv("DISPLAY"),
 		"XAUTHORITY=" + os.Getenv("XAUTHORITY"),
 		"WAYLAND_DISPLAY=" + os.Getenv("WAYLAND_DISPLAY"),
 		"XDG_RUNTIME_DIR=" + runtime,
 		"DBUS_SESSION_BUS_ADDRESS=unix:path=" + runtime + "/bus",
-		name,
 	}
+	for _, k := range []string{"XDG_CURRENT_DESKTOP", "XDG_DATA_DIRS", "DESKTOP_SESSION"} {
+		if v := os.Getenv(k); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	env = append(env, name)
 	return exec.CommandContext(ctx, "sudo", append(env, args...)...)
 }

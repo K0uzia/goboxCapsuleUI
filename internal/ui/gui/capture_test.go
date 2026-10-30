@@ -194,7 +194,7 @@ func demoInventory() []Component {
 		{Name: "Batterie", Icon: "battery-half", Summary: "Santé 100 % · 112 cycles", Fields: []Field{{"Charge", "8 % (sur batterie)"}, {"Temps restant", "1:11:57"}, {"Capacité réelle", "28,6 Wh, soit 100 %"}, {"Fabricant", "Hewlett-Packard"}, {"Tension", "16,29 V"}}},
 		{Name: "Cartes réseau", Icon: "wifi", Summary: "2 interface(s) · 1 connectée(s)", Fields: []Field{{"enp1s0", "Realtek RTL8111/8168 · ethernet · connecté"}, {"wlp2s0", "Intel Wireless 3165 · wifi · déconnecté"}}},
 		{Name: "Carte graphique", Icon: "display", Summary: "Intel Skylake GT2 [HD Graphics 520]", Fields: []Field{{"Modèle", "HD Graphics 520"}, {"Pilote", "i915"}}},
-		{Name: "Affichage", Icon: "tv", Summary: "1 écran(s) connecté(s)", Fields: []Field{{"Écran intégré", "connecté 1366x768"}, {"HDMI (HDMI-A-1)", "déconnecté"}, {"VGA (VGA-1)", "déconnecté"}}},
+		{Name: "Affichage", Icon: "tv", Summary: "1 écran(s) connecté(s)", Fields: []Field{{"Écran intégré", "connecté 1366x768"}}},
 	}
 }
 

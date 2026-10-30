@@ -27,8 +27,9 @@ func relaunchAsAdmin() (exitCode int, relaunched bool) {
 		return 0, false
 	}
 	// pkexec vide l'environnement : on redonne l'accès à l'écran de la session
+	// et le bureau
 	args := []string{"env", "GOBOX_ELEVATED=1"}
-	for _, k := range []string{"DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "LANG"} {
+	for _, k := range []string{"DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "LANG", "XDG_CURRENT_DESKTOP", "XDG_DATA_DIRS", "DESKTOP_SESSION"} {
 		if v := os.Getenv(k); v != "" {
 			args = append(args, k+"="+v)
 		}

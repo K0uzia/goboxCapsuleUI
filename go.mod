@@ -5,6 +5,7 @@ go 1.25.2
 require (
 	fyne.io/fyne/v2 v2.8.2
 	github.com/charmbracelet/bubbletea v1.3.10
+	github.com/go-pdf/fpdf v0.9.0
 )
 
 require (

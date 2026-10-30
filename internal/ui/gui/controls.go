@@ -6,16 +6,16 @@ import (
 	"strings"
 )
 
-// Contrôles de la fiche, dans l'ordre de la fiche papier de l'atelier.
-// Partagés par la fiche à l'écran et la fiche imprimée.
+// Sections de la fiche : chaque composant réunit ses caractéristiques et les
+// résultats de ses tests. Partagées par la fiche à l'écran et la fiche imprimée.
 
 // ctrlItem ligne de contrôle : renseignée par un test gobox, ou saisie par
 // le technicien quand aucun test ne la couvre
 type ctrlItem struct {
 	Label  string
 	TestID string   // test gobox ; "" : saisie du technicien
-	Key    string   // donnée du test propre à la ligne (ports : "HDMI")
-	Scale  []status // cases de la fiche papier (OK / Nul ou OK / Moyen / Nul)
+	Key    string   // donnée du test propre à la ligne (son : "speakers")
+	Scale  []status // choix du technicien (OK / Nul ou OK / Moyen / Nul)
 	Free   bool     // libellé à préciser (« Autre »)
 }
 
@@ -23,68 +23,49 @@ var (
 	scaleOKNul    = []status{statusOK, statusFail}
 	scaleOKMoyNul = []status{statusOK, statusWarn, statusFail}
 
-	ctrlVideo = []ctrlItem{
-		{Label: "HDMI", TestID: "ports", Key: "HDMI", Scale: scaleOKNul},
-		{Label: "DisplayPort", TestID: "ports", Key: "DisplayPort", Scale: scaleOKNul},
-		{Label: "VGA", TestID: "ports", Key: "VGA", Scale: scaleOKNul},
-		{Label: "DVI", TestID: "ports", Key: "DVI", Scale: scaleOKNul},
-		{Label: "Autre sortie vidéo", Scale: scaleOKNul, Free: true},
-		{Label: "Ports USB", TestID: "ports", Key: "usb", Scale: scaleOKNul},
-		{Label: "Webcam", TestID: "webcam", Scale: scaleOKMoyNul},
-		{Label: "Port carte SD", TestID: "sd", Scale: scaleOKNul},
+	ctrlOtherVideo = ctrlItem{Label: "Autre sortie vidéo", Scale: scaleOKNul, Free: true}
+	ctrlOther      = ctrlItem{Label: "Autre", Scale: scaleOKMoyNul, Free: true}
+	// lignes saisies par le technicien, sans test gobox
+	ctrlManual = []ctrlItem{ctrlOtherVideo, ctrlOther}
+
+	ctrlPeripherals = []ctrlItem{
+		{Label: "Port carte SD", TestID: "sd"},
+		{Label: "Webcam", TestID: "webcam"},
+		{Label: "Clavier", TestID: "clavier"},
+		{Label: "Pad / souris", TestID: "souris"},
 	}
-	ctrlAudio = []ctrlItem{
-		{Label: "Clavier", TestID: "clavier", Scale: scaleOKMoyNul},
-		{Label: "Pad / souris", TestID: "souris", Scale: scaleOKMoyNul},
-		{Label: "Carte son", TestID: "son", Key: "card", Scale: scaleOKNul},
-		{Label: "Haut-parleurs", TestID: "son", Key: "speakers", Scale: scaleOKMoyNul},
-		{Label: "Sortie audio", TestID: "son", Key: "jack", Scale: scaleOKNul},
-		{Label: "Entrée micro", TestID: "son", Key: "mic_in", Scale: scaleOKNul},
-		{Label: "Micro interne", TestID: "son", Key: "mic_int", Scale: scaleOKNul},
-		{Label: "Autre", Scale: scaleOKMoyNul, Free: true},
+	ctrlSound = []ctrlItem{
+		{Label: "Carte son", TestID: "son", Key: "card"},
+		{Label: "Haut-parleurs", TestID: "son", Key: "speakers"},
+		{Label: "Sortie audio", TestID: "son", Key: "jack"},
+		{Label: "Entrée micro", TestID: "son", Key: "mic_in"},
+		{Label: "Micro interne", TestID: "son", Key: "mic_int"},
 	}
-	// tests gobox absents de la fiche papier
-	ctrlGobox = []ctrlItem{
-		{Label: "Stress test CPU", TestID: "stress"},
-		{Label: "Réseau", TestID: "reseau"},
-		{Label: "SMART disque HDD", TestID: "hdd"},
-		{Label: "SMART disque SSD", TestID: "ssd"},
-		{Label: "SMART disque NVMe", TestID: "nvme"},
+	ctrlSmart = []ctrlItem{
+		{Label: "SMART HDD", TestID: "hdd"},
+		{Label: "SMART SSD", TestID: "ssd"},
+		{Label: "SMART NVMe", TestID: "nvme"},
+	}
+	ctrlSystem = []ctrlItem{
 		{Label: "Clonage système", TestID: "clone"},
 		{Label: "Déploiement post-install", TestID: "deploy"},
 		{Label: "Mises à jour", TestID: "maj"},
 	}
 )
 
-// itemState statut d'une ligne et valeur à afficher à côté (« 1 / 3 »)
-func (s *session) itemState(it ctrlItem) (status, string) {
+// itemState statut d'une ligne
+func (s *session) itemState(it ctrlItem) status {
 	if it.TestID == "" {
-		return s.Form.Checks[it.Label], ""
+		return s.Form.Checks[it.Label]
 	}
 	r, ok := s.Results[it.TestID]
 	if !ok || it.Key == "" {
-		return s.status(it.TestID), ""
+		return s.status(it.TestID)
 	}
-	v, has := r.Data[it.Key]
-	if st, ok := parseStatusData(v); ok {
-		return st, ""
+	if st, ok := parseStatusData(r.Data[it.Key]); ok {
+		return st
 	}
-	if !has {
-		if it.TestID == "ports" && it.Key != "usb" {
-			return statusNA, "aucun" // pas de connecteur de ce type
-		}
-		return r.Status, ""
-	}
-	tested, total, ok := parseRatio(v)
-	switch {
-	case !ok:
-		return r.Status, v
-	case total == 0:
-		return statusNA, "aucun"
-	case tested > 0:
-		return statusOK, v
-	}
-	return r.Status, v
+	return r.Status
 }
 
 // parseStatusData statut écrit par statusData (« st:ok »)
@@ -101,40 +82,214 @@ func parseStatusData(v string) (status, bool) {
 	return statusIdle, false
 }
 
-// parseRatio « 2 / 9 » → 2, 9
-func parseRatio(v string) (int, int, bool) {
+// ficheRow ligne d'une section : libellé, valeur, et résultat de test éventuel
+type ficheRow struct {
+	Label, Value string
+	Tested       bool   // la ligne porte un résultat
+	Status       status // résultat
+	Pill         string // libellé du résultat quand il diffère du statut
+}
+
+// pillLabel libellé affiché pour le résultat
+func (r ficheRow) pillLabel() string {
+	if r.Pill != "" {
+		return r.Pill
+	}
+	return r.Status.style().label
+}
+
+// ficheSection un composant de la machine et ses résultats
+type ficheSection struct {
+	Name, Icon, Summary string
+	Rows                []ficheRow
+}
+
+const pillUntested = "NON TESTÉ"
+
+// testRow ligne du résultat d'un test, avec son détail
+func (s *session) testRow(label, id string) ficheRow {
+	return ficheRow{Label: label, Value: s.Results[id].Detail, Tested: true, Status: s.status(id)}
+}
+
+func (s *session) itemRows(items []ctrlItem) []ficheRow {
+	var out []ficheRow
+	for _, it := range items {
+		r := ficheRow{Label: it.Label, Tested: true, Status: s.itemState(it)}
+		if it.Key == "" {
+			r.Value = s.Results[it.TestID].Detail
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// manualRow ligne « Autre » : seulement si le technicien l'a renseignée
+func (s *session) manualRow(it ctrlItem) []ficheRow {
+	label, st := s.Form.Texts[it.Label], s.Form.Checks[it.Label]
+	if label == "" && st == statusIdle {
+		return nil
+	}
+	return []ficheRow{{Label: orUnknown(label, it.Label), Tested: st != statusIdle, Status: st}}
+}
+
+// parsePortCount « 2 / 3 » → 2, 3 ; « 2 / ? » → 2, -1
+func parsePortCount(v string) (tested, total int, ok bool) {
 	a, b, ok := strings.Cut(v, "/")
 	if !ok {
 		return 0, 0, false
 	}
-	x, err1 := strconv.Atoi(strings.TrimSpace(a))
-	y, err2 := strconv.Atoi(strings.TrimSpace(b))
-	return x, y, err1 == nil && err2 == nil
-}
-
-// stressTemp température relevée (« 41 °C ») et sa case de la fiche papier :
-// moins de 90 °C, ou 90 °C et plus
-func stressTemp(v string) (temp float64, below90, ok bool) {
-	f := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "°C"))
-	t, err := strconv.ParseFloat(strings.ReplaceAll(f, ",", "."), 64)
+	tested, err := strconv.Atoi(strings.TrimSpace(a))
 	if err != nil {
-		return 0, false, false
+		return 0, 0, false
 	}
-	return t, t < stressFailTemp, true
+	if strings.TrimSpace(b) == "?" {
+		return tested, -1, true
+	}
+	total, err = strconv.Atoi(strings.TrimSpace(b))
+	return tested, total, err == nil
 }
 
-// tempLabel case cochée pour une température, en court (« < 90 °C »)
-func tempLabel(v string) string {
-	if _, below, ok := stressTemp(v); ok {
-		if below {
-			return fmt.Sprintf("< %.0f °C", stressFailTemp)
+// portRows une ligne par prise vidéo, avec son résultat. Une prise testée est
+// OK ; une prise non branchée suit le verdict du technicien s'il est négatif,
+// sinon elle reste « non testée ». Sans liste des prises, seules celles
+// branchées sont nommées et une ligne porte le verdict du reste.
+func (s *session) portRows() []ficheRow {
+	r, ran := s.Results["ports"]
+	var out []ficheRow
+	unknown := !ran && len(s.Ports.Video) == 0
+	listed := false
+	for _, typ := range videoTypes {
+		tested, total := 0, s.Ports.Video[typ]
+		if ran {
+			var ok bool
+			if tested, total, ok = parsePortCount(r.Data[typ]); !ok {
+				continue
+			}
 		}
-		return fmt.Sprintf("≥ %.0f °C", stressFailTemp)
+		listed = true
+		unknown = unknown || total < 0
+		n := max(tested, total)
+		for i := 1; i <= n; i++ {
+			row := ficheRow{Label: typ, Tested: true}
+			if n > 1 {
+				row.Label = fmt.Sprintf("%s %d", typ, i)
+			}
+			switch {
+			case i <= tested:
+				row.Status, row.Value = statusOK, "écran détecté"
+			case !ran:
+				row.Status = statusIdle
+			case r.Status == statusWarn || r.Status == statusFail:
+				row.Status = r.Status
+			default:
+				row.Status, row.Pill = statusIdle, pillUntested
+			}
+			out = append(out, row)
+		}
 	}
-	return ""
+	if unknown || (ran && !listed) {
+		row := ficheRow{Label: "Sorties vidéo", Value: "nombre de prises non lu", Tested: true, Status: s.status("ports")}
+		if listed {
+			row.Label = "Autres sorties vidéo"
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
-// scaleLabel libellé d'une case de la fiche papier
+// usbRow ligne des prises USB : testées / présentes
+func (s *session) usbRow() ficheRow {
+	r, ran := s.Results["ports"]
+	row := ficheRow{Label: "Ports USB", Tested: true, Status: s.status("ports")}
+	if !ran {
+		if s.Ports.USB > 0 {
+			row.Value = fmt.Sprintf("%d prise(s)", s.Ports.USB)
+		}
+		return row
+	}
+	tested, total, ok := parsePortCount(r.Data["usb"])
+	switch {
+	case !ok:
+	case total < 0:
+		row.Value = fmt.Sprintf("%d testé(s), nombre de prises non lu", tested)
+	default:
+		row.Value = fmt.Sprintf("%d / %d testé(s)", tested, total)
+		if total > 0 && tested >= total {
+			row.Status = statusOK
+		}
+	}
+	return row
+}
+
+// stressRow résultat du stress test : températures et erreurs de calcul
+func (s *session) stressRow() ficheRow {
+	row := s.testRow("Stress test", "stress")
+	if row.Value == "" {
+		if before, after := s.data("stress", "before"), s.data("stress", "after"); before != "" {
+			row.Value = before + " au repos, " + after + " au maximum"
+		}
+	}
+	return row
+}
+
+// ficheSections la fiche, composant par composant, dans l'ordre de l'atelier
+func (s *session) ficheSections() []ficheSection {
+	fm := &s.Form
+	info := func(label, v string) ficheRow { return ficheRow{Label: label, Value: v} }
+	var smart []ficheRow
+	for _, row := range s.itemRows(ctrlSmart) {
+		if row.Status != statusNA { // pas de disque de ce type
+			smart = append(smart, row)
+		}
+	}
+	storage := append(smart, info("Shred des disques", fm.Shred))
+	if fm.DVD != "absent" {
+		storage = append(storage, info("Lecteur DVD fonctionnel", fm.DVD))
+	}
+	periph := append([]ficheRow{s.usbRow(), info("USB défectueux", orUnknown(strings.TrimSpace(fm.USBBad), "0"))}, s.itemRows(ctrlPeripherals)...)
+
+	extras := []struct {
+		name, icon string
+		rows       []ficheRow
+	}{
+		{"Machine", "computer", []ficheRow{info("Pile setup changée", fm.CMOS)}},
+		{"Processeur", "microchip", []ficheRow{s.stressRow(), info("Pâte thermique changée", fm.Paste)}},
+		{"Mémoire RAM", "memory", nil},
+		{"Stockage", "hard-drive", storage},
+		{"Batterie", "battery-half", []ficheRow{info("Chargeur en bon état", fm.Charger)}},
+		{"Cartes réseau", "wifi", []ficheRow{s.testRow("Test réseau", "reseau")}},
+		{"Carte graphique", "display", nil},
+		{"Affichage", "tv", append(s.portRows(), s.manualRow(ctrlOtherVideo)...)},
+		{"Ports et saisie", "plug", append(periph, s.manualRow(ctrlOther)...)},
+		{"Son", "volume-high", s.itemRows(ctrlSound)},
+		{"Système", "rocket", s.itemRows(ctrlSystem)},
+	}
+	components := map[string]Component{"Machine": machineComponent(s.Machine)}
+	for _, c := range s.Inventory {
+		components[c.Name] = c
+	}
+	var out []ficheSection
+	for _, e := range extras {
+		c := components[e.name]
+		sec := ficheSection{Name: e.name, Icon: e.icon, Summary: c.Summary}
+		if c.Err != nil {
+			sec.Rows = append(sec.Rows, info("Erreur", c.Err.Error()))
+		}
+		for _, f := range c.Fields {
+			sec.Rows = append(sec.Rows, info(f.Label, f.Value))
+		}
+		if len(c.Fields) == 0 && c.Summary != "" {
+			sec.Rows = append(sec.Rows, info("État", c.Summary))
+		}
+		sec.Rows = append(sec.Rows, e.rows...)
+		if len(sec.Rows) > 0 {
+			out = append(out, sec)
+		}
+	}
+	return out
+}
+
+// scaleLabel libellé d'un choix du technicien
 func scaleLabel(s status) string {
 	switch s {
 	case statusOK:
@@ -147,18 +302,17 @@ func scaleLabel(s status) string {
 	return ""
 }
 
-// maintRow question oui / non de la fiche papier
+// maintRow question oui / non de la fiche
 type maintRow struct {
-	Label string // libellé de la fiche papier (impression)
-	Short string // libellé court, à l'écran
+	Short string // libellé à l'écran
 	Value func(*ficheForm) *string
 	Opts  []string
 }
 
 var maintRows = []maintRow{
-	{"Changement de pâte thermique", "Pâte thermique changée", func(f *ficheForm) *string { return &f.Paste }, []string{"oui", "non"}},
-	{"Shred des disques durs", "Shred des disques", func(f *ficheForm) *string { return &f.Shred }, []string{"oui", "non"}},
-	{"Chargeur en bon état", "Chargeur en bon état", func(f *ficheForm) *string { return &f.Charger }, []string{"oui", "non"}},
-	{"Pile setup changée", "Pile setup changée", func(f *ficheForm) *string { return &f.CMOS }, []string{"oui", "non"}},
-	{"Lecteur DVD fonctionnel", "Lecteur DVD", func(f *ficheForm) *string { return &f.DVD }, []string{"oui", "non", "absent"}},
+	{"Pâte thermique changée", func(f *ficheForm) *string { return &f.Paste }, []string{"oui", "non"}},
+	{"Shred des disques", func(f *ficheForm) *string { return &f.Shred }, []string{"oui", "non"}},
+	{"Chargeur en bon état", func(f *ficheForm) *string { return &f.Charger }, []string{"oui", "non"}},
+	{"Pile setup changée", func(f *ficheForm) *string { return &f.CMOS }, []string{"oui", "non"}},
+	{"Lecteur DVD", func(f *ficheForm) *string { return &f.DVD }, []string{"oui", "non", "absent"}},
 }

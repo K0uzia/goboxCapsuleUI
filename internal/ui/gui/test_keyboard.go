@@ -81,40 +81,36 @@ func runKeyboard(t *testCtx) result {
 		relabel()
 		counter = text(fmt.Sprintf("0 / %d touches", total), 13, true, cText)
 		toggle := secondaryButton("AZERTY / QWERTY", nil, func() { azerty = !azerty; relabel() })
-		trap = newKeyTrap(t.win.Canvas())
+		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) {
+			c, ok := caps[ev.Physical.ScanCode]
+			if !ok || pressed[c.def.Code] {
+				return
+			}
+			pressed[c.def.Code] = true
+			c.bg.setRoles(cSuccess, cSuccess)
+			c.label.Role = cAccentText
+			c.label.Refresh()
+			counter.Text = fmt.Sprintf("%d / %d touches", len(pressed), total)
+			counter.Refresh()
+		})
 		return container.NewVBox(container.NewBorder(nil, nil, counter, toggle), rows, trap)
+	})
+
+	// Le piège garde le focus pour que Tab ne le déplace pas sur un bouton, et
+	// reçoit les touches : Fyne n'appelle SetOnKeyDown du canvas que si aucun
+	// widget n'a le focus
+	t.ui(func() { t.win.Canvas().Focus(trap) })
+	defer t.ui(func() {
+		trap.active = false
+		if t.win.Canvas().Focused() == trap {
+			t.win.Canvas().Unfocus()
+		}
 	})
 
 	// La touche Windows ouvre le menu du bureau avant d'arriver à gobox :
 	// raccourci du bureau suspendu le temps du test
 	restoreSuper := suspendSuperKey(t)
 	defer restoreSuper()
-
-	// Capture des touches sur toute la fenêtre ; le piège garde le focus pour
-	// que Tab ne le déplace pas sur un bouton
-	t.ui(func() {
-		t.win.Canvas().Focus(trap)
-		if dc, ok := t.win.Canvas().(desktop.Canvas); ok {
-			dc.SetOnKeyDown(func(ev *fyne.KeyEvent) {
-				c, ok := caps[ev.Physical.ScanCode]
-				if !ok || pressed[c.def.Code] {
-					return
-				}
-				pressed[c.def.Code] = true
-				c.bg.setRoles(cSuccess, cSuccess)
-				c.label.Role = cAccentText
-				c.label.Refresh()
-				counter.Text = fmt.Sprintf("%d / %d touches", len(pressed), total)
-				counter.Refresh()
-			})
-		}
-	})
-	defer t.ui(func() {
-		trap.active = false
-		if dc, ok := t.win.Canvas().(desktop.Canvas); ok {
-			dc.SetOnKeyDown(nil)
-		}
-	})
 
 	if t.choose("Quand toutes les touches ont été testées :", choice{"Terminer le test clavier", statusOK}) == statusIdle {
 		return result{}
@@ -180,16 +176,19 @@ func (l *flexRowLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
 }
 
 // keyTrap élément invisible qui garde le focus pendant le test clavier : il
-// accepte Tab (sinon Fyne passe au bouton suivant) et reprend le focus si un
-// clic le lui retire
+// reçoit chaque touche enfoncée, accepte Tab (sinon Fyne passe au bouton
+// suivant) et reprend le focus si un clic le lui retire
 type keyTrap struct {
 	widget.BaseWidget
 	canvas fyne.Canvas
 	active bool
+	onKey  func(*fyne.KeyEvent)
 }
 
-func newKeyTrap(c fyne.Canvas) *keyTrap {
-	k := &keyTrap{canvas: c, active: true}
+var _ desktop.Keyable = (*keyTrap)(nil)
+
+func newKeyTrap(c fyne.Canvas, onKey func(*fyne.KeyEvent)) *keyTrap {
+	k := &keyTrap{canvas: c, active: true, onKey: onKey}
 	k.ExtendBaseWidget(k)
 	return k
 }
@@ -197,10 +196,12 @@ func newKeyTrap(c fyne.Canvas) *keyTrap {
 func (k *keyTrap) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(container.NewWithoutLayout())
 }
-func (k *keyTrap) AcceptsTab() bool        { return true }
-func (k *keyTrap) FocusGained()            {}
-func (k *keyTrap) TypedRune(rune)          {}
-func (k *keyTrap) TypedKey(*fyne.KeyEvent) {}
+func (k *keyTrap) AcceptsTab() bool          { return true }
+func (k *keyTrap) FocusGained()              {}
+func (k *keyTrap) TypedRune(rune)            {}
+func (k *keyTrap) TypedKey(*fyne.KeyEvent)   {}
+func (k *keyTrap) KeyDown(ev *fyne.KeyEvent) { k.onKey(ev) }
+func (k *keyTrap) KeyUp(*fyne.KeyEvent)      {}
 func (k *keyTrap) FocusLost() {
 	if k.active {
 		go fyne.Do(func() {

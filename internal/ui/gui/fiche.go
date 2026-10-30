@@ -10,10 +10,8 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-const notMeasured = "non mesuré"
-
-// fichePanel colonne de gauche : la fiche, dans l'ordre de la fiche papier,
-// mise à jour à chaque test confirmé
+// fichePanel colonne de gauche : la fiche, composant par composant, mise à jour
+// à chaque test confirmé
 type fichePanel struct {
 	s        *session
 	root     fyne.CanvasObject
@@ -31,7 +29,6 @@ type fichePanel struct {
 	verdictCap   *tText
 	verdictText  *tText
 	verdictSub   *tText
-	updaters     []func() // lignes reliées aux résultats des tests
 	detailBox    *fyne.Container
 	inventoryBox *fyne.Container
 	detailed     bool
@@ -109,12 +106,9 @@ func newFichePanel(s *session) *fichePanel {
 	usbBad.SetText(s.Form.USBBad)
 	usbBad.SetPlaceHolder("Nombre")
 	usbBad.OnChanged = func(v string) { s.Form.USBBad = v }
-	video := f.ctrlSection("Sorties vidéo & ports", ctrlVideo)
-	video.Add(formRow("USB défectueux", container.New(&widthLayout{w: 90}, f.pass(usbBad))))
-	controls := container.NewVBox(
-		two(video, f.ctrlSection("Saisie & audio", ctrlAudio)),
-		two(f.maintenance(), f.ctrlSection("Tests gobox", ctrlGobox)),
-	)
+	manual := f.manualSection("Autres contrôles", ctrlManual)
+	manual.Add(formRow("USB défectueux", container.New(&widthLayout{w: 90}, f.pass(usbBad))))
+	controls := two(f.maintenance(), manual)
 
 	notes := widget.NewMultiLineEntry()
 	notes.SetPlaceHolder("Observations du technicien (reportées sur la fiche)")
@@ -133,7 +127,7 @@ func newFichePanel(s *session) *fichePanel {
 		summary, gap(), controls, gap(),
 		sectionTitle("Observations du technicien"), f.pass(notes),
 		f.detailBox, gap(),
-		sectionTitle("Inventaire matériel"), f.inventoryBox,
+		sectionTitle("Matériel et résultats des tests"), f.inventoryBox,
 	)
 	f.scroll.Content = container.New(&padLayout{h: 18, v: 12}, paper)
 	f.root = container.NewStack(newRect(cSurface, cLine, 12), container.NewBorder(top, nil, nil, nil, f.scroll))
@@ -154,24 +148,11 @@ func statusRoles(label string) (fyne.ThemeColorName, fyne.ThemeColorName) {
 	return cAccentSoft, cAccent
 }
 
-// ctrlSection liste de contrôles : pastille du test qui la renseigne, ou
-// choix du technicien quand aucun test ne la couvre
-func (f *fichePanel) ctrlSection(title string, items []ctrlItem) *fyne.Container {
+// manualSection lignes saisies par le technicien
+func (f *fichePanel) manualSection(title string, items []ctrlItem) *fyne.Container {
 	list := container.NewVBox(sectionTitle(title))
 	for _, it := range items {
-		if it.TestID == "" {
-			list.Add(f.manualRow(it))
-			continue
-		}
-		p := newPill(statusIdle)
-		value := text("", 12, false, cMuted)
-		value.Mono = true
-		f.updaters = append(f.updaters, func() {
-			st, v := f.s.itemState(it)
-			p.set(st)
-			value.SetText(v)
-		})
-		list.Add(listRow(text(it.Label, 13, false, cText), container.NewHBox(container.NewCenter(value), container.NewCenter(p.root))))
+		list.Add(f.manualRow(it))
 	}
 	return list
 }
@@ -220,31 +201,9 @@ func formRow(label string, field fyne.CanvasObject) fyne.CanvasObject {
 	return container.NewBorder(nil, nil, l, nil, field)
 }
 
-// maintenance températures du stress test (case « moins de 90 °C ») et
-// questions oui / non de la fiche papier
+// maintenance questions oui / non du technicien
 func (f *fichePanel) maintenance() fyne.CanvasObject {
-	list := container.NewVBox(sectionTitle("Stress test & maintenance"))
-	for _, m := range []struct{ label, key string }{{"CPU avant stress", "before"}, {"CPU après stress", "after"}} {
-		value := text(notMeasured, 13, false, cMuted)
-		p := newPill(statusIdle)
-		p.root.Hide()
-		f.updaters = append(f.updaters, func() {
-			v := f.s.data("stress", m.key)
-			setMeasure(value, v)
-			if _, below, ok := stressTemp(v); ok {
-				st := statusFail
-				if below {
-					st = statusOK
-				}
-				p.set(st)
-				p.text.SetText(tempLabel(v))
-				p.root.Show()
-			} else {
-				p.root.Hide()
-			}
-		})
-		list.Add(listRow(text(m.label, 13, false, cText), container.NewHBox(container.NewCenter(value), container.NewCenter(p.root))))
-	}
+	list := container.NewVBox(sectionTitle("Maintenance"))
 	form := &f.s.Form
 	for _, m := range maintRows {
 		v := m.Value(form)
@@ -278,10 +237,6 @@ func (f *fichePanel) refresh() {
 	f.verdictText.Refresh()
 	f.verdictSub.Refresh()
 
-	for _, u := range f.updaters {
-		u()
-	}
-
 	// Détail des tests confirmés (désactivé par défaut, voir Réglages)
 	f.detailBox.RemoveAll()
 	if f.detailed {
@@ -303,19 +258,20 @@ func (f *fichePanel) refresh() {
 	}
 	f.detailBox.Refresh()
 
-	// Inventaire : une carte par composant, icône et texte
-	if len(s.Inventory) > 0 {
-		f.inventoryBox.RemoveAll()
-		cards := []fyne.CanvasObject{inventoryCard(machineComponent(s.Machine))}
-		for _, c := range s.Inventory {
-			cards = append(cards, inventoryCard(c))
-		}
-		f.inventoryBox.Add(container.New(&respGrid{minCol: 250, cols: []int{2, 1}, gap: 10}, cards...))
-		f.inventoryBox.Refresh()
+	// Une carte par composant : ses caractéristiques et ses résultats
+	f.inventoryBox.RemoveAll()
+	if len(s.Inventory) == 0 {
+		f.inventoryBox.Add(text("Détection du matériel…", 13, false, cMuted))
 	}
+	var cards []fyne.CanvasObject
+	for _, sec := range s.ficheSections() {
+		cards = append(cards, inventoryCard(sec))
+	}
+	f.inventoryBox.Add(container.New(&respGrid{minCol: 250, cols: []int{2, 1}, gap: 10}, cards...))
+	f.inventoryBox.Refresh()
 }
 
-// machineComponent identité de la machine, première carte de l'inventaire
+// machineComponent identité de la machine, première section de la fiche
 func machineComponent(m machineInfo) Component {
 	return Component{Name: "Machine", Icon: "computer", Summary: m.Name(), Fields: []Field{
 		{"Marque", orUnknown(m.Vendor, "non lue")},
@@ -324,28 +280,26 @@ func machineComponent(m machineInfo) Component {
 	}}
 }
 
-// inventoryCard carte d'un composant : icône, nom, résumé, puis ses valeurs
-func inventoryCard(c Component) fyne.CanvasObject {
-	ico := c.Icon
-	if ico == "" {
-		ico = "microchip"
-	}
-	badge := container.NewStack(newRect(cAccentSoft, "", 8), container.New(&padLayout{h: 7, v: 7}, iconOf(ico, cAccent, 18)))
+// inventoryCard carte d'un composant : icône, nom, résumé, puis ses valeurs et
+// les résultats de ses tests
+func inventoryCard(c ficheSection) fyne.CanvasObject {
+	badge := container.NewStack(newRect(cAccentSoft, "", 8), container.New(&padLayout{h: 7, v: 7}, iconOf(c.Icon, cAccent, 18)))
 	summary := wrapLabel(c.Summary)
 	summary.TextStyle.Bold = true
 	head := container.NewBorder(nil, nil, container.NewVBox(badge), nil, container.NewVBox(caption(c.Name), summary))
 	rows := container.NewVBox()
-	if c.Err != nil {
-		l := wrapLabel("Erreur : " + c.Err.Error())
-		l.Importance = widget.DangerImportance
-		rows.Add(l)
-	}
-	for _, fl := range c.Fields {
-		value := widget.NewLabel(fl.Value)
+	for _, r := range c.Rows {
+		value := widget.NewLabel(r.Value)
 		value.Wrapping = fyne.TextWrapWord
 		value.SizeName = theme.SizeNameCaptionText
-		label := text(fl.Label, 11, false, cMuted)
-		rows.Add(container.NewBorder(nil, nil, container.New(&widthLayout{w: 110}, container.NewVBox(container.New(&padLayout{v: 7}, label))), nil, value))
+		label := text(r.Label, 11, false, cMuted)
+		var result fyne.CanvasObject
+		if r.Tested {
+			p := newPill(r.Status)
+			p.text.SetText(r.pillLabel())
+			result = container.NewCenter(p.root)
+		}
+		rows.Add(container.NewBorder(nil, nil, container.New(&widthLayout{w: 110}, container.NewVBox(container.New(&padLayout{v: 7}, label))), result, value))
 	}
 	content := container.NewVBox(head)
 	if len(rows.Objects) > 0 {
@@ -353,15 +307,6 @@ func inventoryCard(c Component) fyne.CanvasObject {
 		content.Add(rows)
 	}
 	return box(content, cLine, cSurface2)
-}
-
-// setMeasure valeur relevée, ou « non mesuré » en discret
-func setMeasure(t *tText, v string) {
-	t.Text, t.Role, t.Bold = orUnknown(v, notMeasured), cText, v != ""
-	if v == "" {
-		t.Role = cMuted
-	}
-	t.Refresh()
 }
 
 // showTechHint signale le champ technicien tant qu'il est vide

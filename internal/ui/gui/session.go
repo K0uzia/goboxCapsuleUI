@@ -126,7 +126,7 @@ type ficheForm struct {
 	CMOS     string
 	DVD      string // oui / non / absent
 	USBBad   string
-	Checks   map[string]status // contrôles saisis à la main (ctrlItem.Label)
+	Checks   map[string]status // contrôles saisis à la main (ctrlManual)
 	Texts    map[string]string // précisions des lignes « Autre »
 	Notes    string
 }
@@ -139,6 +139,7 @@ type session struct {
 	Results   map[string]result
 	Inventory []Component
 	Machine   machineInfo
+	Ports     physicalPorts
 
 	listeners []func()
 }
