@@ -448,8 +448,9 @@ func usbDevices() map[string]string {
 // ---- Prises physiques (BIOS) ----------------------------------------------
 
 // physicalPorts prises de la machine. La liste du BIOS (DMI type 8) décrit la
-// carte mère. Sans elle, les connecteurs d'une carte AMD ou NVIDIA sont fiables ;
-// pas ceux d'Intel : un même processeur déclare les mêmes sur tout PC.
+// carte mère, puis la table Intel (vbt.go). Sans elles, les connecteurs d'une carte
+// AMD ou NVIDIA sont fiables ; pas ceux d'Intel : un même processeur déclare les
+// mêmes sur tout PC.
 type physicalPorts struct {
 	Video    map[string]int // type → nombre de prises ; vide : nombre inconnu
 	USBC     int            // prises USB-C listées par le BIOS
@@ -496,6 +497,9 @@ func readPhysicalPorts() physicalPorts {
 			video, usb, usbC = parseDMIConnectors(string(out))
 			why = "le BIOS ne liste pas les prises"
 		}
+	}
+	if len(video) == 0 {
+		video = readVBTPorts()
 	}
 	if len(video) == 0 {
 		video = gpuPorts(videoConnectors(), cardDrivers())
@@ -601,7 +605,10 @@ type videoConnector struct {
 }
 
 // videoTypes types de sorties externes, dans l'ordre de la fiche
-var videoTypes = []string{"HDMI", "DisplayPort", "VGA", "DVI"}
+var videoTypes = []string{"HDMI", "DisplayPort", "VGA", "DVI", videoAny}
+
+// videoAny sortie dont le type n'est connu qu'au branchement
+const videoAny = "Sortie vidéo"
 
 const internalScreen = "Écran intégré"
 

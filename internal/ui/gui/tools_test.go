@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -612,6 +613,44 @@ func TestSlotScanAsksTechnician(t *testing.T) {
 	}
 	if r := findRow(t, s, "Ports et périphériques", "Lecteur de puce"); r.pillLabel() != pillPresent {
 		t.Errorf("fiche : %+v", r)
+	}
+}
+
+// Table vidéo réelle d'un HP EliteBook 850 G3 : l'écran interne ne compte pas, et ses
+// 2 sorties déclarées DP et HDMI comptent sans type précis.
+func TestParseVBT(t *testing.T) {
+	raw, err := os.ReadFile("testdata/vbt-hp-elitebook.b64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.TrimSpace(string(raw))
+	data, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(text, "="))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := parseVBT(data)
+	if len(got) != 1 || got[videoAny] != 2 {
+		t.Fatalf("sorties : %v", got)
+	}
+	if parseVBT(nil) != nil || parseVBT([]byte("pas une table")) != nil || parseVBT(data[:40]) != nil {
+		t.Error("table illisible : rien")
+	}
+	for typ, want := range map[uint16]string{0x1806: "", 0x60d6: videoAny, 0x68c6: "DisplayPort", 0x60d2: videoAny, 0x6001: "VGA", 0: ""} {
+		if got := vbtKind(typ); got != want {
+			t.Errorf("%04x : %q, attendu %q", typ, got, want)
+		}
+	}
+}
+
+// Sortie sans type précis : la fiche dit ce qui a été branché dessus.
+func TestPortRowsAnyOutput(t *testing.T) {
+	s := newSession()
+	s.Results["ports"] = result{Status: statusOK, Data: map[string]string{videoAny: "1 / 2", "video_plugs": "VGA"}}
+	if r := findRow(t, s, "Affichage", videoAny+" 1"); r.Status != statusOK || r.Value != "écran VGA détecté" {
+		t.Errorf("sortie 1 : %+v", r)
+	}
+	if r := findRow(t, s, "Affichage", videoAny+" 2"); r.pillLabel() != pillUntested {
+		t.Errorf("sortie 2 : %+v", r)
 	}
 }
 

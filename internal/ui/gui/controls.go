@@ -187,6 +187,9 @@ func (s *session) portRows() []ficheRow {
 			switch {
 			case i <= tested:
 				row.Status, row.Value = statusOK, "écran détecté"
+				if plugs := strings.Split(r.Data["video_plugs"], ","); typ == videoAny && i <= len(plugs) && plugs[i-1] != "" {
+					row.Value = "écran " + plugs[i-1] + " détecté"
+				}
 			case !ran:
 				row.Status = statusIdle
 			case r.Status == statusWarn || r.Status == statusFail:

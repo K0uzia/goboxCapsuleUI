@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -188,12 +187,7 @@ func usbReport() string {
 	for _, c := range conns {
 		fmt.Fprintf(&b, "  %s (%s) connecté %v\n", c.Name, c.Plug, c.Connected)
 	}
-	// Table vidéo Intel : décrit les vraies prises, à analyser quand le BIOS ne les liste pas
-	if vbt, _ := filepath.Glob("/sys/kernel/debug/dri/*/i915_vbt"); len(vbt) > 0 {
-		if data, err := os.ReadFile(vbt[0]); err == nil && len(data) > 0 {
-			fmt.Fprintf(&b, "\nVBT i915 (%d octets, base64) :\n%s\n", len(data), base64.StdEncoding.EncodeToString(data))
-		}
-	}
+	fmt.Fprintf(&b, "\nPrises vidéo retenues : %v\nTable Intel : %v\n", phys.Video, readVBTPorts())
 	if tool := toolPath("dmidecode"); tool != "" {
 		out, err := exec.Command(tool, "-t", "8").CombinedOutput()
 		if err != nil {

@@ -133,6 +133,20 @@ func runPorts(t *testCtx) result {
 	for _, typ := range videoTypes {
 		videoTested[typ] = map[string]bool{}
 	}
+	// Une sortie déclarée sans type précis reçoit tout écran d'un type non listé
+	videoPlugs := map[string]string{}
+	markVideo := func(c videoConnector) bool {
+		target := c.Plug
+		if phys.Video[target] == 0 && phys.Video[videoAny] > 0 {
+			target = videoAny
+		}
+		if videoTested[target][c.Name] {
+			return false
+		}
+		videoTested[target][c.Name] = true
+		videoPlugs[c.Name] = c.Plug
+		return true
+	}
 	var screen string
 	for _, c := range conns {
 		if c.Type == internalScreen {
@@ -143,7 +157,7 @@ func runPorts(t *testCtx) result {
 			continue
 		}
 		if c.Connected {
-			videoTested[c.Plug][c.Name] = true
+			markVideo(c)
 		}
 	}
 	videoTotal := func(typ string) int {
@@ -266,6 +280,12 @@ func runPorts(t *testCtx) result {
 			if screen != "" {
 				data["screen"] = screen
 			}
+			var plugs []string
+			for name := range videoTested[videoAny] {
+				plugs = append(plugs, videoPlugs[name])
+			}
+			sort.Strings(plugs)
+			data["video_plugs"] = strings.Join(plugs, ",")
 			return result{Status: s, Detail: strings.Join(parts, " · "), Data: data}
 		case <-tick.C:
 			checkKernel()
@@ -292,8 +312,7 @@ func runPorts(t *testCtx) result {
 				if c.Type == internalScreen || !c.Connected {
 					continue
 				}
-				if set := videoTested[c.Plug]; set != nil && !set[c.Name] {
-					set[c.Name] = true
+				if markVideo(c) {
 					t.log("Écran %s détecté sur %s (%s)", c.Plug, c.Name, c.Mode)
 				}
 			}
