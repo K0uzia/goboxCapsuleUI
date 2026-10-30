@@ -16,6 +16,7 @@ if command -v podman >/dev/null 2>&1; then
 	# sur le système de fichiers d'une image live (overlay sur overlay)
 	ENGINE="podman --root $CACHE_DIR/podman --storage-driver vfs"
 	USER_ARGS="--userns=keep-id"
+	[ "$(id -u)" = 0 ] && USER_ARGS="" # keep-id n'existe pas en root (sudo make build)
 elif command -v docker >/dev/null 2>&1; then
 	ENGINE=docker
 	USER_ARGS="--user $(id -u):$(id -g)"
@@ -54,5 +55,5 @@ $ENGINE run --rm $USER_ARGS --security-opt label=disable \
 			rm -f "$OUTPUT"
 			exit 1
 		fi
-		echo "glibc demandée : $needed ou plus récente"
+		echo "Contrôle réussi : compatible avec les distributions à glibc $needed ou plus récente"
 	'
