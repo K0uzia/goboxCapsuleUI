@@ -351,6 +351,45 @@ func TestPower(t *testing.T) {
 	}
 }
 
+// Sur image live, seules les partitions internes non montées, en système de fichiers
+// Linux, sont candidates ; une partition sans système est écartée.
+func TestDiskUpdateTarget(t *testing.T) {
+	lsblk := `{"blockdevices":[
+	 {"name":"loop0","path":"/dev/loop0","fstype":"squashfs","type":"loop","mountpoint":"/usr/lib/live","rm":false},
+	 {"name":"sda","path":"/dev/sda","fstype":null,"type":"disk","mountpoint":null,"rm":false,"children":[
+	  {"name":"sda1","path":"/dev/sda1","fstype":"vfat","type":"part","mountpoint":null,"rm":false},
+	  {"name":"sda2","path":"/dev/sda2","fstype":"ext4","type":"part","mountpoint":null,"rm":false},
+	  {"name":"sda3","path":"/dev/sda3","fstype":"crypto_LUKS","type":"part","mountpoint":null,"rm":false},
+	  {"name":"sda4","path":"/dev/sda4","fstype":"ext4","type":"part","mountpoint":"/mnt","rm":false}]},
+	 {"name":"sdb","path":"/dev/sdb","fstype":null,"type":"disk","mountpoint":null,"rm":true,"children":[
+	  {"name":"sdb1","path":"/dev/sdb1","fstype":"ext4","type":"part","mountpoint":null,"rm":false}]}]}`
+	paths, fs, enc, err := rootCandidates([]byte(lsblk))
+	if err != nil || len(paths) != 1 || paths[0] != "/dev/sda2" || fs["/dev/sda2"] != "ext4" || enc != 1 {
+		t.Fatalf("candidats : %v %v %d %v", paths, fs, enc, err)
+	}
+	root := t.TempDir()
+	if name, m := osIdentity(root); name != "" || m != "" {
+		t.Errorf("partition vide : %q %q", name, m)
+	}
+	os.MkdirAll(filepath.Join(root, "usr/bin"), 0o755)
+	os.MkdirAll(filepath.Join(root, "etc"), 0o755)
+	os.WriteFile(filepath.Join(root, "usr/bin/apt-get"), nil, 0o755)
+	os.WriteFile(filepath.Join(root, "etc/os-release"), []byte("NAME=x\nPRETTY_NAME=\"Linux Mint 22\"\n"), 0o644)
+	if name, m := osIdentity(root); name != "Linux Mint 22" || m != "apt-get" {
+		t.Errorf("système : %q %q", name, m)
+	}
+	got := bootMounts("# c\nUUID=a / ext4 defaults 0 1\nUUID=b /boot ext4 defaults 0 2\nUUID=c /boot/efi vfat umask=0077 0 1\nUUID=d /home ext4 defaults 0 2\n")
+	if len(got) != 2 || got[1].Target != "/boot/efi" || got[1].FSType != "vfat" {
+		t.Errorf("fstab : %+v", got)
+	}
+	if !rootIsVolatile("overlay / overlay rw 0 0\n") || rootIsVolatile("/dev/sda2 / ext4 rw 0 0\n") {
+		t.Error("racine volatile")
+	}
+	if got := mountArgs(diskSystem{Device: "/dev/sda2", Subvol: "@"}, "ro", "/m"); strings.Join(got, " ") != "mount -o ro,subvol=@ /dev/sda2 /m" {
+		t.Errorf("mount : %v", got)
+	}
+}
+
 func TestUpdateSteps(t *testing.T) {
 	for manager, want := range map[string]string{"apt-get": "upgrade", "dnf": "upgrade"} {
 		steps := updateSteps(manager)

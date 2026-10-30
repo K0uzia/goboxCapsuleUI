@@ -2,15 +2,18 @@ package gui
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 )
 
-// Mise à jour du système et des paquets du système en cours d'exécution
+// Mise à jour du système et des paquets du PC : le système en cours d'exécution, ou
+// celui du disque depuis une image live (update_target.go)
 
 // updateStep une commande de la mise à jour
 type updateStep struct {
@@ -36,10 +39,48 @@ func updateSteps(manager string) []updateStep {
 	return nil
 }
 
-// isLiveSession vrai sur une image live : la mise à jour disparaît au redémarrage
+// isLiveSession vrai sur une image live : la session disparaît au redémarrage
 func isLiveSession() bool {
-	info, err := os.Stat("/run/live")
-	return err == nil && info.IsDir()
+	if info, err := os.Stat("/run/live"); err == nil && info.IsDir() {
+		return true
+	}
+	data, _ := os.ReadFile("/proc/mounts")
+	return rootIsVolatile(string(data))
+}
+
+// rootIsVolatile vrai si la racine est un système de fichiers qui ne survit pas
+func rootIsVolatile(mounts string) bool {
+	for _, line := range strings.Split(mounts, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && f[1] == "/" {
+			switch f[2] {
+			case "overlay", "aufs", "tmpfs", "squashfs":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// chooseSystem le système à mettre à jour s'il y en a plusieurs ; faux si annulé
+func chooseSystem(t *testCtx, systems []diskSystem) (diskSystem, bool) {
+	if len(systems) == 1 {
+		return systems[0], true
+	}
+	picked := make(chan diskSystem, 1)
+	t.panel(func() fyne.CanvasObject {
+		list := container.NewVBox(instruction("arrows-rotate", "Plusieurs systèmes sur le disque : lequel mettre à jour ?"))
+		for _, sys := range systems {
+			list.Add(secondaryButton(sys.Name+" ("+sys.Device+")", nil, func() { picked <- sys }))
+		}
+		return list
+	})
+	select {
+	case s := <-picked:
+		return s, true
+	case <-t.ctx.Done():
+		return diskSystem{}, false
+	}
 }
 
 func runUpdate(t *testCtx) result {
@@ -49,21 +90,50 @@ func runUpdate(t *testCtx) result {
 		t.log("Données simulées : aucune mise à jour réelle")
 		return result{Status: statusOK, Detail: "Système et paquets à jour"}
 	}
-	manager := firstAvailable("apt-get", "dnf")
-	steps := updateSteps(manager)
-	if len(steps) == 0 {
-		t.log("Aucun gestionnaire de paquets pris en charge (apt-get, dnf)")
-		return unsupported("gestionnaire de paquets non pris en charge")
-	}
 	if !isAdmin() {
 		t.log("La mise à jour nécessite les droits administrateur")
 		return unsupported("droits administrateur nécessaires")
 	}
-	message := "Met à jour le système et les paquets de la session en cours (" + manager + ")."
 	if isLiveSession() {
-		message = "Session live : la mise à jour s'applique à la session et disparaît au redémarrage, le disque du PC n'est pas modifié."
+		return updateDiskSystem(t)
 	}
-	t.panel(func() fyne.CanvasObject { return instruction("arrows-rotate", message) })
+	manager := firstAvailable("apt-get", "dnf")
+	if len(updateSteps(manager)) == 0 {
+		t.log("Aucun gestionnaire de paquets pris en charge (apt-get, dnf)")
+		return unsupported("gestionnaire de paquets non pris en charge")
+	}
+	name, _ := osIdentity("/")
+	return applyUpdate(t, orUnknown(name, "ce système"), manager, nil)
+}
+
+// updateDiskSystem image live : met à jour le système installé sur le disque du PC
+func updateDiskSystem(t *testCtx) result {
+	t.log("Session live : recherche du système installé sur le disque…")
+	systems, encrypted := findDiskSystems(t.ctx, t.log)
+	if t.cancelled() {
+		return result{}
+	}
+	if len(systems) == 0 {
+		detail := "aucun système Linux sur le disque"
+		if encrypted > 0 {
+			detail = "disque chiffré, système illisible"
+		}
+		t.log("Rien à mettre à jour : %s", detail)
+		return unsupported(detail)
+	}
+	sys, ok := chooseSystem(t, systems)
+	if !ok {
+		return result{}
+	}
+	return applyUpdate(t, sys.Name+" sur le disque ("+sys.Device+")", sys.Manager, &sys)
+}
+
+// applyUpdate demande confirmation puis lance la mise à jour ; disk nil : le système
+// en cours d'exécution
+func applyUpdate(t *testCtx, name, manager string, disk *diskSystem) result {
+	t.panel(func() fyne.CanvasObject {
+		return instruction("arrows-rotate", "Met à jour "+name+" et ses paquets ("+manager+"). La modification est définitive. Ne pas éteindre le PC pendant l'opération.")
+	})
 	if t.choose("Lancer la mise à jour ?", choice{"Lancer", statusOK}, choice{"Ne pas faire", statusNA}) != statusOK {
 		if t.cancelled() {
 			return result{}
@@ -71,25 +141,46 @@ func runUpdate(t *testCtx) result {
 		return result{Status: statusNA, Detail: "Non réalisée"}
 	}
 	t.answered = false // la suite est longue : le résultat reste affiché
-	for _, step := range steps {
-		t.log("%s…", step.Label)
-		if err := runLogged(t, step.Args); err != nil {
-			if t.cancelled() {
-				return result{}
+	t.lockCancel()     // interrompre un paquet en cours d'installation casserait le système
+
+	var prefix []string
+	if disk != nil {
+		t.log("Montage de %s…", disk.Device)
+		m, err := mountForUpdate(context.Background(), *disk)
+		if err != nil {
+			t.log("Erreur : %v", err)
+			return result{Status: statusFail, Detail: "Disque non monté : " + err.Error()}
+		}
+		defer func() {
+			if err := m.unmount(); err != nil {
+				t.log("Erreur : démontage incomplet (%v)", err)
+			} else {
+				t.log("Disque démonté")
 			}
+		}()
+		chroot := toolPath("chroot")
+		if chroot == "" {
+			return result{Status: statusFail, Detail: "chroot absent"}
+		}
+		prefix = []string{chroot, m.root}
+	}
+	for _, step := range updateSteps(manager) {
+		t.log("%s…", step.Label)
+		if err := runLogged(t, append(append([]string{}, prefix...), step.Args...)); err != nil {
 			t.log("Erreur : %v", err)
 			return result{Status: statusFail, Detail: step.Label + " : échec"}
 		}
 	}
 	t.log("Mise à jour terminée")
-	return result{Status: statusOK, Detail: "Système et paquets à jour (" + manager + ")"}
+	return result{Status: statusOK, Detail: name + " : système et paquets à jour"}
 }
 
 // runLogged lance une commande et écrit sa sortie dans le journal du test
 func runLogged(t *testCtx, args []string) error {
-	cmd := exec.CommandContext(t.ctx, args[0], args[1:]...)
-	setProcessGroup(cmd)
-	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive", "LC_ALL=C")
+	// sans contexte : une fois lancée, la mise à jour va à son terme
+	cmd := exec.Command(args[0], args[1:]...)
+	setpgidOnly(cmd)
+	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive", "LC_ALL=C", "PATH=/usr/sbin:/usr/bin:/sbin:/bin")
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return err

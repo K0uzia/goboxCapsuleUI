@@ -27,6 +27,7 @@ type toolsPanel struct {
 	active  *testDef
 	cancel  context.CancelFunc
 	pending result
+	locked  bool // annulation interdite (mise à jour en cours)
 }
 
 func newToolsPanel(s *session, win fyne.Window) *toolsPanel {
@@ -133,7 +134,7 @@ func (p *toolsPanel) launch(t *testDef) {
 		p.cancel()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	p.active, p.cancel = t, cancel
+	p.active, p.cancel, p.locked = t, cancel, false
 	p.view.start(t)
 	p.menu.Hide()
 	p.view.root.Show()
@@ -190,6 +191,9 @@ func (p *toolsPanel) typedKey(e *fyne.KeyEvent) {
 		return
 	}
 	if p.active == nil || p.active.ID == "clavier" {
+		return
+	}
+	if p.locked && !p.view.resultBox.Visible() {
 		return
 	}
 	switch e.Name {

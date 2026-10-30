@@ -17,6 +17,9 @@ func setProcessGroup(c *exec.Cmd) {
 	c.WaitDelay = 2 * time.Second
 }
 
+// setpgidOnly place la commande dans son groupe, sans annulation
+func setpgidOnly(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
+
 // stopProcess arrête la commande et ce qu'elle a lancé, puis attend sa fin ; SIGKILL
 // seulement si elle n'a pas répondu
 func stopProcess(c *exec.Cmd) {

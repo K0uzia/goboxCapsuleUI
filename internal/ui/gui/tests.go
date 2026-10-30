@@ -54,6 +54,14 @@ func (t *testCtx) ui(f func()) { fyne.Do(f) }
 // markSimulated signale à l'écran que les mesures sont simulées
 func (t *testCtx) markSimulated() { fyne.Do(func() { t.view.simBadge.Show() }) }
 
+// lockCancel retire l'annulation : le test doit aller à son terme
+func (t *testCtx) lockCancel() {
+	fyne.DoAndWait(func() {
+		t.view.p.locked = true
+		t.view.running.Hide()
+	})
+}
+
 // setPanelEmpty retire le contenu propre au test
 func (t *testCtx) setPanelEmpty() { fyne.Do(func() { t.view.setPanel(nil) }) }
 
