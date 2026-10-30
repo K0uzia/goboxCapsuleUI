@@ -5,7 +5,7 @@
 set -eu
 
 GO_BIN=$1 TAGS=$2 LDFLAGS=$3 OUTPUT=$4 MAIN_PKG=$5
-IMAGE=gobox-build:glibc2.28
+IMAGE=gobox-build:glibc2.28-paquets
 MAX_GLIBC=2.28
 
 CACHE_DIR=${XDG_CACHE_HOME:-$HOME/.cache}/gobox-build
@@ -56,4 +56,5 @@ $ENGINE run --rm $USER_ARGS --security-opt label=disable \
 			exit 1
 		fi
 		echo "Contrôle réussi : compatible avec les distributions à glibc $needed ou plus récente"
+		sh packaging/build-packages.sh
 	'
