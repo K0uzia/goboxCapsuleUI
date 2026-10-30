@@ -1,4 +1,4 @@
-.PHONY: help deps deps-system deps-go deps-mod update run dev dev-build dev-user build build-local fmt vet test check clean
+.PHONY: help deps deps-system deps-go deps-mod update run dev dev-build dev-user build build-local install fmt vet test check clean
 
 # ---- Configuration ---------------------------------------------------------
 
@@ -77,12 +77,12 @@ endif
 # + compilateur C et bibliothèques OpenGL/X11 pour l'interface graphique (Fyne).
 # Linux : le gestionnaire de paquets est détecté, dnf (Rocky/RHEL/Fedora) ou
 # apt (Debian/Mint). xrandr n'existe plus dans les dépôts RHEL 10.
-DNF_PACKAGES := curl pciutils dmidecode stress-ng \
+DNF_PACKAGES := curl pciutils dmidecode smartmontools stress-ng \
                 gcc pkgconf-pkg-config mesa-libGL-devel mesa-libEGL-devel \
                 libX11-devel libXext-devel libXcursor-devel libXrandr-devel \
                 libXinerama-devel libXi-devel libXxf86vm-devel \
                 wayland-devel libxkbcommon-devel
-APT_PACKAGES := curl pciutils dmidecode x11-xserver-utils stress-ng \
+APT_PACKAGES := curl pciutils dmidecode smartmontools x11-xserver-utils stress-ng \
                 gcc pkg-config libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev \
                 xorg-dev libwayland-dev libxkbcommon-dev
 
@@ -186,8 +186,14 @@ ifeq ($(PLATFORM),windows)
 	@$(MAKE) build-local
 else
 	@sh scripts/build-portable.sh "$(GO)" "$(GO_TAGS)" "$(LDFLAGS)" "$(BINARY)" "$(MAIN_PKG)"
+	@chmod +x $(BINARY)
+	@tar -czf $(BUILD_DIR)/$(APP)-linux-x86_64.tar.gz -C $(BUILD_DIR) $(APP)$(EXE) -C ../packaging gobox.desktop gobox.svg install.sh
 	@echo "Binaire : $(BINARY)"
+	@echo "Archive à copier sur les PC (garde le droit d'exécution) : $(BUILD_DIR)/$(APP)-linux-x86_64.tar.gz"
 endif
+
+install: ## Installe gobox avec son icône dans le menu (demande sudo)
+	sudo sh packaging/install.sh $(BINARY)
 
 build-local: ## Compile sans conteneur (limité aux distributions aussi récentes que celle-ci)
 	@$(MKDIR_BUILD)

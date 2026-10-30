@@ -114,7 +114,7 @@ func (s *session) testRow(label, id string) ficheRow {
 func (s *session) itemRows(items []ctrlItem) []ficheRow {
 	var out []ficheRow
 	for _, it := range items {
-		r := ficheRow{Label: it.Label, Tested: true, Status: s.itemState(it)}
+		r := ficheRow{Label: it.Label, Tested: true, Status: s.itemState(it), Pill: s.data(it.TestID, "pill")}
 		if it.Key == "" {
 			r.Value = s.Results[it.TestID].Detail
 		}
@@ -197,28 +197,48 @@ func (s *session) portRows() []ficheRow {
 	return out
 }
 
-// usbRow ligne des prises USB : testées / présentes
-func (s *session) usbRow() ficheRow {
+// usbRows une ligne par type de prise USB : testées / présentes
+func (s *session) usbRows() []ficheRow {
 	r, ran := s.Results["ports"]
-	row := ficheRow{Label: "Ports USB", Tested: true, Status: s.status("ports")}
-	if !ran {
-		if s.Ports.USB > 0 {
-			row.Value = fmt.Sprintf("%d prise(s)", s.Ports.USB)
+	var out []ficheRow
+	for _, kind := range usbKindOrder {
+		row := ficheRow{Label: kind, Tested: true}
+		if !ran {
+			n := s.Ports.USBKinds[kind]
+			if n == 0 {
+				continue
+			}
+			row.Value = fmt.Sprintf("%d prise(s)", n)
+			out = append(out, row)
+			continue
 		}
-		return row
-	}
-	tested, total, ok := parsePortCount(r.Data["usb"])
-	switch {
-	case !ok:
-	case total < 0:
-		row.Value = fmt.Sprintf("%d testé(s), nombre de prises non lu", tested)
-	default:
+		tested, total, ok := parsePortCount(r.Data[kind])
+		if !ok {
+			continue
+		}
 		row.Value = fmt.Sprintf("%d / %d testé(s)", tested, total)
-		if total > 0 && tested >= total {
+		switch {
+		case tested >= total:
 			row.Status = statusOK
+		case r.Status == statusWarn || r.Status == statusFail:
+			row.Status = r.Status
+		default:
+			row.Status, row.Pill = statusIdle, pillUntested
+		}
+		out = append(out, row)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	// nombre de prises inconnu
+	row := ficheRow{Label: "Ports USB", Tested: true, Status: s.status("ports")}
+	if tested, total, ok := parsePortCount(r.Data["usb"]); ran && ok {
+		row.Value = fmt.Sprintf("%d testé(s), nombre de prises non lu", tested)
+		if total >= 0 {
+			row.Value = fmt.Sprintf("%d / %d testé(s)", tested, total)
 		}
 	}
-	return row
+	return []ficheRow{row}
 }
 
 // stressRow résultat du stress test : températures et erreurs de calcul
@@ -251,7 +271,7 @@ func (s *session) ficheSections() []ficheSection {
 	info := func(label, v string) ficheRow { return ficheRow{Label: label, Value: v} }
 	var smart []ficheRow
 	for _, row := range s.itemRows(ctrlSmart) {
-		if row.Status != statusNA { // pas de disque de ce type
+		if row.Status != statusNA || row.Pill != "" { // sinon : pas de disque de ce type
 			smart = append(smart, row)
 		}
 	}
@@ -259,7 +279,7 @@ func (s *session) ficheSections() []ficheSection {
 	if fm.DVD != "absent" {
 		storage = append(storage, info("Lecteur DVD fonctionnel", fm.DVD))
 	}
-	periph := append([]ficheRow{s.usbRow(), info("USB défectueux", orUnknown(strings.TrimSpace(fm.USBBad), "0"))}, s.itemRows(ctrlPeripherals)...)
+	periph := append(append(s.usbRows(), info("USB défectueux", orUnknown(strings.TrimSpace(fm.USBBad), "0"))), s.itemRows(ctrlPeripherals)...)
 
 	prep := append([]ficheRow{info("Aspect", strings.ToLower(fm.Aspect)), info("Nettoyage", cleaningText(fm)), info("Pile setup changée", fm.CMOS)}, s.itemRows(ctrlSystem)...)
 

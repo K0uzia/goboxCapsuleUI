@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"gobox/internal/probe"
@@ -51,6 +51,18 @@ func Run() {
 				s.markAbsent(absent)
 				s.changed()
 			})
+			// SMART : rien à demander au technicien, lu dès l'ouverture
+			if simulated {
+				return
+			}
+			for _, kind := range []string{"hdd", "ssd", "nvme"} {
+				r := smartScan(context.Background(), kind, func(string, ...any) {})
+				fyne.Do(func() {
+					if s.status(kind) == statusIdle {
+						s.setResult(kind, r)
+					}
+				})
+			}
 		}()
 	})
 	w.ShowAndRun()
@@ -93,15 +105,9 @@ func mainContent(s *session, w fyne.Window) (fyne.CanvasObject, *toolsPanel) {
 	w.Canvas().SetOnTypedKey(tools.typedKey)
 
 	body := container.New(&ratioLayout{left: 0.46, gap: 24}, fiche.root, tools.root)
-	bottom := container.NewHBox(layout.NewSpacer(),
-		stepBar(s, tools.setStep, onPrint),
-		iconButton(buttonIcon("circle-info"), func() { showInfo(s, w) }),
-		iconButton(buttonIcon("gear"), func() { showSettings(w, fiche) }),
-	)
 	return container.NewBorder(
-		headerBar(s, onPrint),
-		container.New(&padLayout{h: 16, v: 8}, bottom),
-		nil, nil,
+		headerBar(s, w, fiche, tools, onPrint),
+		nil, nil, nil,
 		container.New(&padLayout{h: 16, v: 12}, body),
 	), tools
 }
@@ -125,12 +131,10 @@ func showPrinted(w fyne.Window, path string, err error) {
 	dialog.NewCustom(title, "Fermer", container.New(&widthLayout{w: 460}, content), w).Show()
 }
 
-// headerBar bandeau du haut : marque, durée de la session, impression
-func headerBar(s *session, onPrint func()) fyne.CanvasObject {
-	brand := container.NewHBox(
-		text("gobox", 20, true, cAccent),
-		container.NewVBox(layout.NewSpacer(), text("Toolbox de reconditionnement · La Capsule", 13, false, cMuted), layout.NewSpacer()),
-	)
+// headerBar bandeau du haut : marque, étapes au centre, puis durée, température,
+// impression, à propos et réglages
+func headerBar(s *session, w fyne.Window, fiche *fichePanel, tools *toolsPanel, onPrint func()) fyne.CanvasObject {
+	brand := container.NewCenter(text("gobox", 20, true, cAccent))
 	chrono := text(s.elapsed(), 13, true, cText)
 	cpu := text("non lue", 13, true, cText)
 	go func() {
@@ -157,12 +161,42 @@ func headerBar(s *session, onPrint func()) fyne.CanvasObject {
 		chip("temperature-half", "CPU", cpu),
 		container.New(&padLayout{h: 4}),
 		primaryButton("PRINT", coloredIcon("print", cAccentText), onPrint),
+		iconButton(buttonIcon("circle-info"), func() { showInfo(s, w) }),
+		iconButton(buttonIcon("gear"), func() { showSettings(w, fiche) }),
 	)
-	bar := container.NewBorder(nil, nil, brand, right)
+	bar := container.New(&headerLayout{gap: 12}, brand, stepBar(s, tools.setStep), right)
 	return container.NewVBox(
 		container.NewStack(newRect(cSurface, "", 0), container.New(&padLayout{h: 16, v: 8}, bar)),
 		hRule(cLine),
 	)
+}
+
+// headerLayout trois blocs : le deuxième centré sur la fenêtre tant qu'il y a la
+// place, et réduit plutôt que de chevaucher ses voisins
+type headerLayout struct{ gap float32 }
+
+func (l *headerLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
+	var h float32
+	for _, o := range objs {
+		h = max(h, o.MinSize().Height)
+	}
+	return fyne.NewSize(objs[0].MinSize().Width+objs[2].MinSize().Width+2*l.gap+160, h)
+}
+
+func (l *headerLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	left, mid, right := objs[0], objs[1], objs[2]
+	lw, rw := left.MinSize().Width, right.MinSize().Width
+	left.Resize(fyne.NewSize(lw, size.Height))
+	left.Move(fyne.NewPos(0, 0))
+	right.Resize(fyne.NewSize(rw, size.Height))
+	right.Move(fyne.NewPos(size.Width-rw, 0))
+
+	from, to := lw+l.gap, size.Width-rw-l.gap
+	w := min(mid.MinSize().Width, to-from)
+	x := max(from, min((size.Width-w)/2, to-w))
+	h := mid.MinSize().Height
+	mid.Resize(fyne.NewSize(w, h))
+	mid.Move(fyne.NewPos(x, (size.Height-h)/2))
 }
 
 // chip indicateur de l'en-tête : libellé discret, valeur
@@ -195,9 +229,8 @@ func currentStep(s *session) (step int, hint string) {
 }
 
 // stepBar barre d'étapes, mise à jour seule à chaque changement de la fiche :
-// segments faits, étape en cours mise en avant dans les tests, impression à
-// la fin
-func stepBar(s *session, onStep func(category string), onPrint func()) fyne.CanvasObject {
+// segments faits, étape en cours mise en avant dans les tests
+func stepBar(s *session, onStep func(category string)) fyne.CanvasObject {
 	label := text("", 14, true, cText)
 	counter := text("", 12, false, cMuted)
 	hint := text("", 12, false, cMuted)
@@ -209,7 +242,6 @@ func stepBar(s *session, onStep func(category string), onPrint func()) fyne.Canv
 		segs[i].MinSz = fyne.NewSize(0, 4)
 		segObjs[i] = segs[i]
 	}
-	printBtn := primaryButton("Imprimer la fiche", coloredIcon("print", cAccentText), onPrint)
 
 	update := func() {
 		step, h := currentStep(s)
@@ -227,11 +259,6 @@ func stepBar(s *session, onStep func(category string), onPrint func()) fyne.Canv
 			}
 		}
 		onStep(steps[step].category)
-		if step == len(steps)-1 {
-			printBtn.Show()
-		} else {
-			printBtn.Hide()
-		}
 	}
 	s.onChange(update)
 	update()
@@ -239,19 +266,19 @@ func stepBar(s *session, onStep func(category string), onPrint func()) fyne.Canv
 	head := container.NewBorder(nil, nil, container.NewHBox(counter, label), container.NewCenter(hint))
 	content := container.NewVBox(head, container.New(&respGrid{minCol: 10, cols: []int{len(steps)}, gap: 4}, segObjs...))
 	bar := container.NewStack(newRect(cSurface, cLineStrong, 8), container.New(&padLayout{h: 14, v: 8}, content))
-	return container.NewHBox(container.New(&widthLayout{w: 480}, bar), container.NewCenter(printBtn))
+	return container.New(&widthLayout{w: 460}, bar)
 }
 
 // showInfo à propos, et raccourcis clavier
 func showInfo(s *session, w fyne.Window) {
 	keys := container.NewVBox(
-		formRow("Échap", wrapLabel("Annuler le test en cours")),
-		formRow("Entrée", wrapLabel("Confirmer le résultat affiché")),
+		formRow("Échap", wrapLabel("Annuler le test en cours ou revenir au menu")),
+		formRow("Entrée", wrapLabel("Revenir au menu une fois le résultat affiché")),
 		formRow("Tab", wrapLabel("Passer d'un bouton à l'autre, Entrée ou Espace pour lancer")),
 	)
 	content := container.NewVBox(
 		text("gobox", 20, true, cAccent),
-		wrapLabel("Toolbox de reconditionnement de La Capsule : chaque bouton lance un test, le résultat s'inscrit dans la fiche après confirmation, puis PRINT ouvre la fiche à enregistrer ou imprimer."),
+		wrapLabel("Toolbox de reconditionnement de La Capsule : chaque bouton lance un test, le résultat s'inscrit dans la fiche, puis PRINT ouvre la fiche à enregistrer ou imprimer."),
 		formRow("Fiche en cours", text(s.Ref, 13, true, cText)),
 		sectionTitle("Raccourcis clavier"),
 		keys,

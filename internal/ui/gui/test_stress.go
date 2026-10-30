@@ -117,7 +117,7 @@ func runStress(t *testCtx) result {
 		}
 		nErr := errs.Load()
 
-		// throttling : la fréquence chute sous charge
+		// la fréquence chute sous charge : indicatif, normal sur batterie
 		if s.Load > 90 && elapsed >= stressWarmup {
 			if s.Freq < stressThrottleRatio*maxFreq {
 				slowRun++
@@ -126,7 +126,7 @@ func runStress(t *testCtx) result {
 			}
 			if slowRun >= stressThrottleSamples && !throttled {
 				throttled = true
-				t.log("Throttling : %s contre %s au maximum", ghz(s.Freq), ghz(maxFreq))
+				t.log("Fréquence réduite : %s contre %s au maximum", ghz(s.Freq), ghz(maxFreq))
 			}
 		}
 		if s.Load > 90 {
@@ -184,7 +184,7 @@ func stressSettings(t *testCtx) (time.Duration, bool, bool) {
 			field("clock", "Durée", dur),
 			field("gauge-high", "Charge", load),
 			mutedNote("Constante : 100 % en continu. Variable : alterne pleine charge et demi-charge, utile pour révéler une alimentation instable."),
-			mutedNote(fmt.Sprintf("Réserve à %.0f °C ou en cas de throttling ; échec et arrêt à %.0f °C ou à la première erreur de calcul.", stressWarnTemp, stressFailTemp)),
+			mutedNote(fmt.Sprintf("Réserve à %.0f °C ; échec et arrêt à %.0f °C ou à la première erreur de calcul.", stressWarnTemp, stressFailTemp)),
 			container.NewHBox(launch),
 		), cLine, cSurface2)
 	})
@@ -342,12 +342,15 @@ func (v stressVerdict) tempStatus() status {
 	return statusOK
 }
 
+// result le verdict repose sur les températures et les erreurs de calcul. Une
+// fréquence réduite n'y compte pas : sur batterie, la limite de puissance la
+// baisse alors que la machine chauffe moins que sur secteur.
 func (v stressVerdict) result() result {
 	st := statusOK
 	switch {
 	case v.errors > 0 || v.tempStatus() == statusFail:
 		st = statusFail
-	case v.throttled || v.tempStatus() == statusWarn || !v.hasTemp:
+	case v.tempStatus() == statusWarn || !v.hasTemp:
 		st = statusWarn
 	}
 	detail := fmt.Sprintf("%d erreur(s) de calcul", v.errors)
@@ -357,7 +360,7 @@ func (v stressVerdict) result() result {
 		detail = "Température non mesurée, " + detail
 	}
 	if v.throttled {
-		detail += ", throttling"
+		detail += ", fréquence réduite"
 	}
 	if v.stopReason != "" {
 		detail += " (" + v.stopReason + ")"
@@ -387,9 +390,9 @@ func (v stressVerdict) summary(chart *lineChart) fyne.CanvasObject {
 	if v.hasTemp {
 		temp = fmt.Sprintf("%.0f °C (repos %.0f °C, seuils %.0f / %.0f °C)", v.maxTemp, v.before, stressWarnTemp, stressFailTemp)
 	}
-	thr, thrSt := "stable, "+ghz(v.avgFreq)+" en moyenne", statusOK
+	thr := "stable, " + ghz(v.avgFreq) + " en moyenne"
 	if v.throttled {
-		thr, thrSt = "baisse sous charge (max "+ghz(v.maxFreq)+")", statusWarn
+		thr = "réduite sous charge (max " + ghz(v.maxFreq) + "), sans effet sur le verdict"
 	}
 	dur, durSt := formatClock(v.ran)+" sur "+formatClock(v.planned), statusOK
 	if v.stopReason != "" {
@@ -399,7 +402,7 @@ func (v stressVerdict) summary(chart *lineChart) fyne.CanvasObject {
 		caption("Critères"),
 		row("Erreurs de calcul : ", fmt.Sprintf("%d", v.errors), errSt),
 		row("Température max : ", temp, v.tempStatus()),
-		row("Fréquence : ", thr, thrSt),
+		listRow(container.NewHBox(text("Fréquence : ", 13, false, cText), text(thr, 13, true, cText)), container.NewHBox()),
 		row("Durée : ", dur, durSt),
 		caption("Température pendant le test"), chart,
 	)
@@ -462,7 +465,7 @@ func (v stressVerdict) advice() []string {
 			"Vérifier que le ventilateur tourne et accélère sous charge ; le remplacer s'il est bruyant ou bloqué.")
 	}
 	if v.throttled {
-		out = append(out, "Baisse de fréquence sous charge : sur un portable, brancher le chargeur d'origine et passer le profil d'alimentation en performance.")
+		out = append(out, "Fréquence réduite sous charge : normal sur batterie. Pour la mesurer à plein régime, brancher le chargeur d'origine et passer le profil d'alimentation en performance.")
 		if !v.hasTemp || v.maxTemp < stressWarnTemp {
 			out = append(out, "Le throttling sans surchauffe vient souvent d'une limite de puissance : vérifier le chargeur (puissance en watts) et la batterie.")
 		}

@@ -89,9 +89,10 @@ func runPorts(t *testCtx) result {
 	conns := videoConnectors()
 	if simulated {
 		t.markSimulated()
-		usb = usbPorts{group: map[string]string{}, possible: map[string]string{}, total: 4}
+		usb = usbPorts{group: map[string]string{"a": "a", "b": "b", "c": "c", "d": "d"}, possible: map[string]string{},
+			kinds: map[string]string{"a": usbKind2, "b": usbKind2, "c": usbKind3, "d": usbKindC}, total: 4}
 		phys.Video = map[string]int{"HDMI": 1, "VGA": 1}
-		conns = []videoConnector{{Name: "HDMI-A-1", Type: "HDMI"}, {Name: "VGA-1", Type: "VGA"}, {Name: "eDP-1", Type: internalScreen, Connected: true, Mode: "1920x1080"}}
+		conns = []videoConnector{{Name: "HDMI-A-1", Type: "HDMI", Plug: "HDMI"}, {Name: "VGA-1", Type: "VGA", Plug: "VGA"}, {Name: "eDP-1", Type: internalScreen, Plug: internalScreen, Connected: true, Mode: "1920x1080"}}
 	}
 	videoKnown := len(phys.Video) > 0
 
@@ -117,7 +118,7 @@ func runPorts(t *testCtx) result {
 			continue
 		}
 		if c.Connected {
-			videoTested[c.Type][c.Name] = true
+			videoTested[c.Plug][c.Name] = true
 		}
 	}
 	videoTotal := func(typ string) int {
@@ -126,53 +127,78 @@ func runPorts(t *testCtx) result {
 		}
 		return phys.Video[typ]
 	}
+	usbCount := func(kind string) int {
+		n := 0
+		for port := range usbTested {
+			if usb.kindOf(port) == kind {
+				n++
+			}
+		}
+		return n
+	}
 	if usb.total < 0 {
 		t.log("USB : le microprogramme n'indique pas les prises, seuls les branchements sont comptés")
 	} else {
 		t.log("%d prise(s) USB, dont %d déjà occupée(s)", usb.total, len(usbTested))
 	}
-	if !videoKnown {
-		t.log("Vidéo : le BIOS ne liste pas les prises (ou droits administrateur manquants), seuls les branchements sont comptés")
-	}
-	for _, typ := range videoTypes {
-		if n := videoTotal(typ); n > 0 {
-			t.log("%s : %d prise(s) listée(s) par le BIOS", typ, n)
-		}
-	}
-
-	tiles := map[string]*portTile{}
-	t.panel(func() fyne.CanvasObject {
-		var objs []fyne.CanvasObject
-		tiles["USB"] = newPortTile("usb", "USB", usb.total)
-		objs = append(objs, tiles["USB"].root)
+	if videoKnown {
 		for _, typ := range videoTypes {
-			if n := videoTotal(typ); n != 0 || len(videoTested[typ]) > 0 {
-				tiles[typ] = newPortTile("display", typ, n)
-				objs = append(objs, tiles[typ].root)
+			if n := videoTotal(typ); n > 0 {
+				t.log("%s : %d prise(s)", typ, n)
 			}
 		}
+	} else {
+		t.log("Vidéo : nombre de prises non lu (%s), seuls les branchements sont comptés", phys.Why)
+	}
+
+	// Une tuile par type réellement présent : celles des prises dont le nombre
+	// n'est pas connu apparaissent au premier branchement
+	tiles := map[string]*portTile{}
+	grid := container.New(&respGrid{minCol: 130, cols: []int{4, 3, 2}, gap: 8})
+	tile := func(key, ico string, total int) *portTile {
+		tl := tiles[key]
+		if tl == nil {
+			tl = newPortTile(ico, key, total)
+			tiles[key] = tl
+			grid.Add(tl.root)
+		}
+		return tl
+	}
+	update := func() {
+		t.ui(func() {
+			if usb.total < 0 {
+				tile("USB", "usb", -1).set(len(usbTested))
+			} else {
+				totals := usb.kindTotals()
+				for _, kind := range usbKindOrder {
+					if n, done := totals[kind], usbCount(kind); n > 0 || done > 0 {
+						tl := tile(kind, "usb", n)
+						tl.total = n
+						tl.set(done)
+					}
+				}
+			}
+			for _, typ := range videoTypes {
+				if n, done := videoTotal(typ), len(videoTested[typ]); n > 0 || done > 0 {
+					tile(typ, "display", n).set(done)
+				}
+			}
+			grid.Refresh()
+		})
+	}
+	t.panel(func() fyne.CanvasObject {
 		content := container.NewVBox(
 			instruction("plug", "Branchez une clé USB sur chaque port, puis un écran sur chaque sortie vidéo. Un port déjà occupé compte comme testé."),
-			container.New(&respGrid{minCol: 130, cols: []int{len(objs), 3, 2}, gap: 8}, objs...),
+			grid,
 		)
 		if screen != "" {
 			content.Add(listRow(container.NewHBox(iconOf("computer", cMuted, 14), text(internalScreen, 13, false, cText)), text(screen, 13, true, cText)))
 		}
+		if !videoKnown {
+			content.Add(mutedNote("Sorties vidéo : nombre de prises non lu (" + phys.Why + "). Elles s'affichent dès qu'un écran est branché."))
+		}
 		return content
 	})
-	update := func() {
-		t.ui(func() {
-			if tl := tiles["USB"]; tl != nil {
-				tl.total = usb.total
-				tl.set(len(usbTested))
-			}
-			for typ, set := range videoTested {
-				if tl := tiles[typ]; tl != nil {
-					tl.set(len(set))
-				}
-			}
-		})
-	}
 	update()
 
 	answer := t.ask("Tous les ports présents ont été testés ?", verdictChoices...)
@@ -186,6 +212,14 @@ func runPorts(t *testCtx) result {
 			t.clearAsk()
 			data := map[string]string{"usb": portCount(len(usbTested), usb.total)}
 			parts := []string{"USB " + data["usb"]}
+			if usb.total >= 0 {
+				totals := usb.kindTotals()
+				for _, kind := range usbKindOrder {
+					if n, done := totals[kind], usbCount(kind); n > 0 || done > 0 {
+						data[kind] = portCount(done, n)
+					}
+				}
+			}
 			for _, typ := range videoTypes {
 				if n := videoTotal(typ); n > 0 || len(videoTested[typ]) > 0 {
 					data[typ] = portCount(len(videoTested[typ]), n)
@@ -213,13 +247,16 @@ func runPorts(t *testCtx) result {
 					t.log("USB : %s, port déjà testé", name)
 				default:
 					usbTested[port] = true
-					t.log("USB : %s, %d prise(s) testée(s)", name, len(usbTested))
+					t.log("USB : %s, prise %s testée", name, usb.kindOf(port))
 				}
 			}
 			for _, c := range videoConnectors() {
-				if set := videoTested[c.Type]; set != nil && c.Connected && !set[c.Name] {
+				if c.Type == internalScreen || !c.Connected {
+					continue
+				}
+				if set := videoTested[c.Plug]; set != nil && !set[c.Name] {
 					set[c.Name] = true
-					t.log("Écran détecté sur %s (%s)", c.Name, c.Mode)
+					t.log("Écran %s détecté sur %s (%s)", c.Plug, c.Name, c.Mode)
 				}
 			}
 			update()

@@ -1,11 +1,13 @@
 package gui
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -163,14 +165,76 @@ func internalDisks() []blockDisk {
 type usbPorts struct {
 	group    map[string]string // nom du port sysfs (usb1-port3, 1-4-port2) → prise
 	possible map[string]string // type non renseigné : prise seulement si on y branche
+	kinds    map[string]string // prise → USB 2.0, USB 3.x ou USB-C
+	typeC    int               // ports de /sys/class/typec
 	total    int
 	fromACPI bool
+}
+
+// Types de prises USB, dans l'ordre de la fiche
+const (
+	usbKind2 = "USB 2.0"
+	usbKind3 = "USB 3.x"
+	usbKindC = "USB-C"
+)
+
+var usbKindOrder = []string{usbKind2, usbKind3, usbKindC}
+
+// betterKind garde le type le plus capable : les deux moitiés d'une prise USB 3
+// sont sur un bus 2.0 et un bus 3.0
+func betterKind(a, b string) string {
+	for _, k := range []string{usbKindC, usbKind3} {
+		if a == k || b == k {
+			return k
+		}
+	}
+	return usbKind2
+}
+
+// portKind type d'un port sysfs : relié à un connecteur Type-C, ou vitesse de son
+// concentrateur
+func portKind(hub, port string) string {
+	if _, err := os.Stat(filepath.Join(port, "connector")); err == nil {
+		return usbKindC
+	}
+	if speed, _ := strconv.Atoi(readTrim(filepath.Join(hub, "speed"))); speed >= 5000 {
+		return usbKind3
+	}
+	return usbKind2
+}
+
+// kindOf type d'une prise
+func (p usbPorts) kindOf(key string) string {
+	if k := p.kinds[key]; k != "" {
+		return k
+	}
+	return usbKind2
+}
+
+// kindTotals nombre de prises par type. Si le système compte des ports Type-C
+// sans dire lesquels, ils sont retirés des USB 3.
+func (p usbPorts) kindTotals() map[string]int {
+	seen := map[string]bool{}
+	out := map[string]int{}
+	for _, k := range p.group {
+		if !seen[k] {
+			seen[k] = true
+			out[p.kindOf(k)]++
+		}
+	}
+	if out[usbKindC] == 0 && p.typeC > 0 {
+		n := min(p.typeC, out[usbKind3])
+		out[usbKindC], out[usbKind3] = n, out[usbKind3]-n
+	}
+	return out
 }
 
 // readUSBPorts lit les ports ; dmiUSB (prises listées par le BIOS) ne sert que
 // si le microprogramme ne renseigne aucun port
 func readUSBPorts(dmiUSB int) usbPorts {
-	p := usbPorts{group: map[string]string{}, possible: map[string]string{}}
+	p := usbPorts{group: map[string]string{}, possible: map[string]string{}, kinds: map[string]string{}}
+	typeC, _ := filepath.Glob("/sys/class/typec/port?")
+	p.typeC = len(typeC)
 	// concentrateurs : contrôleurs (usbN), et hubs branchés sur un port câblé
 	hubs, _ := filepath.Glob(filepath.Join(sysUSB, "usb*"))
 	for len(hubs) > 0 {
@@ -187,6 +251,7 @@ func readUSBPorts(dmiUSB int) usbPorts {
 			if peer, err := os.Readlink(filepath.Join(port, "peer")); err == nil && filepath.Base(peer) < key {
 				key = filepath.Base(peer)
 			}
+			p.kinds[key] = betterKind(p.kinds[key], portKind(hub, port))
 			switch readTrim(filepath.Join(port, "connect_type")) {
 			case "not used":
 			case "hardwired":
@@ -305,22 +370,91 @@ func usbDevices() map[string]string {
 
 // ---- Prises physiques (BIOS) ----------------------------------------------
 
-// physicalPorts prises de la machine. La carte graphique ne les connaît pas :
-// un même processeur déclare les mêmes connecteurs sur tout PC (3 DP + 3 HDMI,
-// VGA par pont vu comme DP). La liste du BIOS (DMI type 8) décrit la carte mère.
+// physicalPorts prises de la machine. La liste du BIOS (DMI type 8) décrit la
+// carte mère. Sans elle, les connecteurs d'une carte AMD ou NVIDIA sont fiables ;
+// pas ceux d'Intel : un même processeur déclare les mêmes sur tout PC.
 type physicalPorts struct {
-	Video map[string]int // type → nombre de prises ; vide : nombre inconnu
-	USB   int            // < 0 : nombre inconnu
+	Video    map[string]int // type → nombre de prises ; vide : nombre inconnu
+	Why      string         // pourquoi le nombre est inconnu
+	USB      int            // < 0 : nombre inconnu
+	USBKinds map[string]int // type de prise USB → nombre
+}
+
+// toolPath chemin d'un outil système : /usr/sbin n'est pas toujours dans le PATH
+// (Mint, ou lancé sans sudo)
+func toolPath(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	for _, d := range []string{"/usr/sbin", "/sbin", "/usr/local/sbin"} {
+		if p := filepath.Join(d, name); readable(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func readable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // readPhysicalPorts lit les prises ; dmidecode demande les droits root
 func readPhysicalPorts() physicalPorts {
 	var video map[string]int
 	var usb int
-	if out, err := exec.Command("dmidecode", "-t", "8").Output(); err == nil {
-		video, usb = parseDMIConnectors(string(out))
+	why := ""
+	switch tool := toolPath("dmidecode"); {
+	case tool == "":
+		why = "dmidecode n'est pas installé"
+	case !isAdmin():
+		why = "droits administrateur manquants"
+	default:
+		out, err := exec.Command(tool, "-t", "8").Output()
+		if err != nil {
+			why = "dmidecode : " + err.Error()
+		} else {
+			video, usb = parseDMIConnectors(string(out))
+			why = "le BIOS ne liste pas les prises"
+		}
 	}
-	return physicalPorts{Video: video, USB: readUSBPorts(usb).total}
+	if len(video) == 0 {
+		video = gpuPorts(videoConnectors(), cardDrivers())
+	}
+	ports := readUSBPorts(usb)
+	return physicalPorts{Video: video, Why: why, USB: ports.total, USBKinds: ports.kindTotals()}
+}
+
+// cardDrivers pilote de chaque carte graphique (card0 → i915)
+func cardDrivers() map[string]string {
+	out := map[string]string{}
+	cards, _ := filepath.Glob("/sys/class/drm/card?")
+	for _, c := range cards {
+		if link, err := os.Readlink(filepath.Join(c, "device", "driver")); err == nil {
+			out[filepath.Base(c)] = filepath.Base(link)
+		}
+	}
+	return out
+}
+
+// gpuPorts prises d'après les cartes graphiques ; vide dès qu'une carte Intel
+// est présente, ses connecteurs ne décrivent pas la machine
+func gpuPorts(conns []videoConnector, drivers map[string]string) map[string]int {
+	if len(drivers) == 0 {
+		return nil
+	}
+	for _, d := range drivers {
+		if d == "i915" || d == "xe" {
+			return nil
+		}
+	}
+	out := map[string]int{}
+	for _, c := range conns {
+		if c.Type != internalScreen {
+			out[c.Type]++
+		}
+	}
+	return out
 }
 
 var (
@@ -365,6 +499,7 @@ func parseDMIConnectors(out string) (video map[string]int, usb int) {
 type videoConnector struct {
 	Name      string // HDMI-A-1, DP-2…
 	Type      string // HDMI, DisplayPort, VGA, DVI, Écran intégré
+	Plug      string // prise réellement utilisée : VGA pour un écran analogique sur DP
 	Connected bool
 	Mode      string // résolution de l'écran branché (1920x1080)
 }
@@ -390,6 +525,13 @@ func connectorType(name string) string {
 	return "" // Virtual, Writeback…
 }
 
+// edidAnalog vrai si l'écran se déclare analogique (octet 20 de l'EDID, bit 7 à
+// 0) : un VGA relié par un pont interne est vu comme DisplayPort par la carte
+func edidAnalog(edid []byte) bool {
+	magic := []byte{0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0}
+	return len(edid) >= 128 && bytes.Equal(edid[:8], magic) && edid[20]&0x80 == 0
+}
+
 // videoConnectors connecteurs de toutes les cartes graphiques, triés
 func videoConnectors() []videoConnector {
 	var out []videoConnector
@@ -400,9 +542,13 @@ func videoConnectors() []videoConnector {
 		if typ == "" {
 			continue
 		}
-		c := videoConnector{Name: name, Type: typ, Connected: readTrim(filepath.Join(d, "status")) == "connected"}
+		c := videoConnector{Name: name, Type: typ, Plug: typ, Connected: readTrim(filepath.Join(d, "status")) == "connected"}
 		if c.Connected {
 			c.Mode, _, _ = strings.Cut(readTrim(filepath.Join(d, "modes")), "\n")
+			edid, _ := os.ReadFile(filepath.Join(d, "edid"))
+			if typ != internalScreen && edidAnalog(edid) {
+				c.Plug = "VGA"
+			}
 		}
 		out = append(out, c)
 	}

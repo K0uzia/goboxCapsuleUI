@@ -290,7 +290,12 @@ func inventoryCard(c ficheSection) fyne.CanvasObject {
 			p.text.SetText(r.pillLabel())
 			result = container.NewCenter(p.root)
 		}
-		rows.Add(container.NewBorder(nil, nil, container.New(&widthLayout{w: 110}, container.NewVBox(container.New(&padLayout{v: 7}, label))), result, value))
+		labelBox := container.New(&widthLayout{w: 110}, container.NewVBox(container.New(&padLayout{v: 7}, label)))
+		if r.Tested && len(r.Value) > 24 { // détail long : sous le libellé, sur toute la largeur
+			rows.Add(container.NewVBox(container.NewBorder(nil, nil, labelBox, result), value))
+			continue
+		}
+		rows.Add(container.NewBorder(nil, nil, labelBox, result, value))
 	}
 	content := container.NewVBox(head)
 	if len(rows.Objects) > 0 {

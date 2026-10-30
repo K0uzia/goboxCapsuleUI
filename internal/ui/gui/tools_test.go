@@ -14,8 +14,8 @@ import (
 	"fyne.io/fyne/v2/test"
 )
 
-// Parcours complet d'un test : clic sur le bouton, résultat, confirmation,
-// puis vérification que la fiche a enregistré le résultat.
+// Parcours complet d'un test sans question : clic sur le bouton, résultat affiché
+// et déjà inscrit dans la fiche.
 func TestToolFlow(t *testing.T) {
 	a := test.NewApp()
 	defer a.Quit()
@@ -38,19 +38,20 @@ func TestToolFlow(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
-	for !tools.view.finished.Visible() {
+	for !tools.view.resultBox.Visible() {
 		if time.Now().After(deadline) {
 			t.Fatal("le résultat n'est jamais affiché")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if s.status("fake") != statusIdle {
-		t.Fatal("le résultat ne doit pas être enregistré avant confirmation")
-	}
-
-	tools.close(true)
+	// aucune confirmation : le résultat est déjà dans la fiche
 	if got := s.status("fake"); got != statusWarn {
 		t.Fatalf("statut enregistré = %v, attendu MOYEN", got)
+	}
+
+	tools.close(false)
+	if got := s.status("fake"); got != statusWarn {
+		t.Fatalf("le retour au menu ne doit pas effacer le résultat : %v", got)
 	}
 	if !tools.menu.Visible() {
 		t.Fatal("le menu devrait être réaffiché")
@@ -90,6 +91,111 @@ func TestFichePDF(t *testing.T) {
 		if err := os.WriteFile(out, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// Le verdict donné par le technicien inscrit le résultat et ramène au menu, sans
+// étape de plus ; une correction depuis l'écran de résultat fait de même.
+func TestAnswerReturnsToMenu(t *testing.T) {
+	a := test.NewApp()
+	defer a.Quit()
+	a.Settings().SetTheme(newTheme(true))
+	w := a.NewWindow("test")
+	s := newSession()
+	s.Tests = []*testDef{{ID: "q", Title: "Question", Category: catPeripherals, Color: cPeripheral, Soft: cPeripheralBg,
+		Run: func(tc *testCtx) result { return result{Status: tc.choose("Résultat ?", verdictChoices...)} }},
+		{ID: "auto", Title: "Auto", Category: catPeripherals, Color: cPeripheral, Soft: cPeripheralBg,
+			Run: func(tc *testCtx) result { return result{Status: statusOK} }}}
+	tools := newToolsPanel(s, w)
+	wait := func(cond func() bool, what string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatal(what)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	test.Tap(tools.buttons["q"])
+	time.Sleep(50 * time.Millisecond)
+	answerAsk(tools.view, 2) // Nul
+	wait(func() bool { return tools.active == nil }, "pas de retour au menu après le verdict")
+	if s.status("q") != statusFail || !tools.menu.Visible() {
+		t.Fatalf("statut %v, menu visible %v", s.status("q"), tools.menu.Visible())
+	}
+	test.Tap(tools.buttons["auto"])
+	wait(func() bool { return tools.view.resultBox.Visible() }, "résultat non affiché")
+	tools.view.pickVerdict(statusWarn)
+	if s.status("auto") != statusWarn || tools.active != nil {
+		t.Fatalf("correction : %v, actif %v", s.status("auto"), tools.active)
+	}
+}
+
+// Un écran analogique se reconnaît à son EDID, même vu comme DisplayPort.
+func TestEDIDAnalog(t *testing.T) {
+	edid := make([]byte, 128)
+	copy(edid, []byte{0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0})
+	if !edidAnalog(edid) {
+		t.Error("bit 7 à 0 : analogique")
+	}
+	edid[20] = 0xa5
+	if edidAnalog(edid) {
+		t.Error("bit 7 à 1 : numérique")
+	}
+	if edidAnalog(nil) || edidAnalog(make([]byte, 128)) {
+		t.Error("EDID absent ou invalide : pas analogique")
+	}
+}
+
+// Les prises USB sont comptées par type ; les ports Type-C non reliés sont
+// retirés des USB 3.
+func TestUSBKinds(t *testing.T) {
+	if betterKind(usbKind2, usbKind3) != usbKind3 || betterKind(usbKindC, usbKind3) != usbKindC || betterKind("", usbKind2) != usbKind2 {
+		t.Error("type le plus capable attendu")
+	}
+	p := usbPorts{group: map[string]string{"a": "a", "a2": "a", "b": "b", "c": "c"}, kinds: map[string]string{"a": usbKind3, "b": usbKind3, "c": usbKind2}}
+	got := p.kindTotals()
+	if got[usbKind3] != 2 || got[usbKind2] != 1 || got[usbKindC] != 0 {
+		t.Errorf("totaux : %v", got)
+	}
+	p.typeC = 1
+	got = p.kindTotals()
+	if got[usbKind3] != 1 || got[usbKindC] != 1 {
+		t.Errorf("Type-C : %v", got)
+	}
+
+	s := newSession()
+	s.Results["ports"] = result{Status: statusOK, Data: map[string]string{"usb": "3 / 4", usbKind2: "2 / 2", usbKind3: "1 / 2"}}
+	if r := findRow(t, s, "Ports et périphériques", usbKind2); r.Status != statusOK {
+		t.Errorf("USB 2 : %+v", r)
+	}
+	if r := findRow(t, s, "Ports et périphériques", usbKind3); r.pillLabel() != pillUntested {
+		t.Errorf("USB 3 incomplet : %+v", r)
+	}
+}
+
+// Sans liste du BIOS, seules les cartes non Intel décrivent la machine.
+func TestGPUPorts(t *testing.T) {
+	conns := []videoConnector{{Type: "DisplayPort"}, {Type: "HDMI"}, {Type: "HDMI"}, {Type: internalScreen}}
+	if got := gpuPorts(conns, map[string]string{"card0": "amdgpu"}); got["HDMI"] != 2 || got["DisplayPort"] != 1 || got[internalScreen] != 0 {
+		t.Errorf("AMD : %v", got)
+	}
+	if got := gpuPorts(conns, map[string]string{"card0": "i915", "card1": "nouveau"}); len(got) != 0 {
+		t.Errorf("Intel : %v", got)
+	}
+}
+
+// Un SMART refusé s'écrit « non supporté » et ne pèse pas sur le verdict.
+func TestSmartUnsupported(t *testing.T) {
+	s := newSession()
+	s.Results["ssd"] = unsupported("sda : SMART non supporté")
+	if r := findRow(t, s, "Stockage", "SMART SSD"); r.pillLabel() != pillUnsupported {
+		t.Errorf("ligne : %+v", r)
+	}
+	done, ok, warn, fail := s.counts()
+	if done != 1 || ok+warn+fail != 0 {
+		t.Errorf("compte : %d %d %d %d", done, ok, warn, fail)
 	}
 }
 
@@ -414,10 +520,9 @@ func TestKeyboardKeepsFocus(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // la question de fin arrive après la prise de focus
 	answerAsk(tools.view, 0)
 	deadline = time.Now().Add(2 * time.Second)
-	for !tools.view.finished.Visible() && time.Now().Before(deadline) {
+	for tools.active != nil && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	tools.close(true)
 	if got := s.Results["clavier"].Detail; !strings.HasPrefix(got, "2 / ") {
 		t.Fatalf("touches comptées : %q, attendu 2 touches", got)
 	}

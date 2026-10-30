@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// Règles du verdict validées le 2026-10-28 : erreur ou ≥ 90 °C = NUL ;
-// throttling ou 85 à 89 °C = MOYEN ; sans capteur = MOYEN.
+// Règles du verdict : erreur ou ≥ 90 °C = NUL ; 85 à 89 °C = MOYEN ; sans capteur
+// = MOYEN. Une fréquence réduite (batterie) ne change pas le verdict (2026-10-30).
 func TestStressVerdict(t *testing.T) {
 	base := stressVerdict{hasTemp: true, before: 40, ran: 3 * time.Minute, planned: 3 * time.Minute}
 	cases := []struct {
@@ -20,7 +20,7 @@ func TestStressVerdict(t *testing.T) {
 		{"85 °C", func(v *stressVerdict) { v.maxTemp = 85 }, statusWarn},
 		{"89 °C", func(v *stressVerdict) { v.maxTemp = 89 }, statusWarn},
 		{"90 °C", func(v *stressVerdict) { v.maxTemp = 90 }, statusFail},
-		{"throttling à 75 °C", func(v *stressVerdict) { v.maxTemp = 75; v.throttled = true }, statusWarn},
+		{"fréquence réduite à 75 °C", func(v *stressVerdict) { v.maxTemp = 75; v.throttled = true }, statusOK},
 		{"une erreur de calcul", func(v *stressVerdict) { v.maxTemp = 70; v.errors = 1 }, statusFail},
 		{"sans capteur", func(v *stressVerdict) { v.hasTemp = false }, statusWarn},
 	}

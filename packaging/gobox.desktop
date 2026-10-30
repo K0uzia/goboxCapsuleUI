@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=gobox
+Comment=Toolbox de reconditionnement La Capsule
+Exec=/usr/local/bin/gobox
+Icon=gobox
+Terminal=false
+Categories=System;

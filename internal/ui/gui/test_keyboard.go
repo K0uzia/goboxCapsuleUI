@@ -51,6 +51,19 @@ func runKeyboard(t *testCtx) result {
 	var counter *tText
 	var trap *keyTrap
 
+	press := func(code int) {
+		c, ok := caps[code]
+		if !ok || pressed[c.def.Code] {
+			return
+		}
+		pressed[c.def.Code] = true
+		c.bg.setRoles(cSuccess, cSuccess)
+		c.label.Role = cAccentText
+		c.label.Refresh()
+		counter.Text = fmt.Sprintf("%d / %d touches", len(pressed), total)
+		counter.Refresh()
+	}
+
 	relabel := func() {
 		for _, c := range caps {
 			c.label.Text = c.def.Qwerty
@@ -81,18 +94,7 @@ func runKeyboard(t *testCtx) result {
 		relabel()
 		counter = text(fmt.Sprintf("0 / %d touches", total), 13, true, cText)
 		toggle := secondaryButton("AZERTY / QWERTY", nil, func() { azerty = !azerty; relabel() })
-		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) {
-			c, ok := caps[ev.Physical.ScanCode]
-			if !ok || pressed[c.def.Code] {
-				return
-			}
-			pressed[c.def.Code] = true
-			c.bg.setRoles(cSuccess, cSuccess)
-			c.label.Role = cAccentText
-			c.label.Refresh()
-			counter.Text = fmt.Sprintf("%d / %d touches", len(pressed), total)
-			counter.Refresh()
-		})
+		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { press(ev.Physical.ScanCode) })
 		return container.NewVBox(container.NewBorder(nil, nil, counter, toggle), rows, trap)
 	})
 
@@ -111,6 +113,18 @@ func runKeyboard(t *testCtx) result {
 	// raccourci du bureau suspendu le temps du test
 	restoreSuper := suspendSuperKey(t)
 	defer restoreSuper()
+
+	// Le clavier entier est capturé : les raccourcis du bureau (menu de Cinnamon)
+	// ne sortent plus du test
+	if !simulated && manageSuperKey {
+		release, ok := grabKeyboard(func(code int) { fyne.Do(func() { press(code) }) })
+		defer release()
+		if ok {
+			t.log("Clavier capturé pendant le test : terminez à la souris")
+		} else {
+			t.log("Capture du clavier impossible : un raccourci du bureau peut sortir du test")
+		}
+	}
 
 	if t.choose("Quand toutes les touches ont été testées :", choice{"Terminer le test clavier", statusOK}) == statusIdle {
 		return result{}
@@ -218,7 +232,8 @@ var superKeySettings = [][2]string{
 	{"org.cinnamon.muffin", "overlay-key"}, // Cinnamon (Mint)
 }
 
-// manageSuperKey faux dans les tests automatiques : ne touche pas au bureau
+// manageSuperKey faux dans les tests automatiques : ne touche ni au bureau ni
+// au clavier
 var manageSuperKey = true
 
 var (

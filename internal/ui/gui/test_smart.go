@@ -1,9 +1,9 @@
 package gui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -49,66 +49,101 @@ func diskKind(d *probe.DiskInfo) string {
 
 var kindNames = map[string]string{"hdd": "disque dur (HDD)", "ssd": "SSD SATA", "nvme": "SSD NVMe"}
 
+// Un SMART illisible n'est pas une panne : « non supporté » sur la fiche, sans
+// peser sur le verdict
+const pillUnsupported = "NON SUPPORTÉ"
+
+func unsupported(detail string) result {
+	return result{Status: statusNA, Detail: detail, Data: map[string]string{"pill": pillUnsupported}}
+}
+
 // runSmart vérifie l'état SMART de tous les disques d'un type
 func runSmart(kind string) func(t *testCtx) result {
 	return func(t *testCtx) result {
 		t.progress(-1)
-		names, err := probe.ListDisks()
-		if err != nil {
-			return result{Status: statusFail, Detail: err.Error()}
-		}
-		var disks []*probe.DiskInfo
-		for _, n := range names {
-			if d, err := probe.GetDiskInfo(n); err == nil && diskKind(d) == kind {
-				disks = append(disks, d)
-			}
-		}
-		if len(disks) == 0 {
-			t.log("Aucun %s sur cette machine", kindNames[kind])
-			return result{Status: statusNA, Detail: "Aucun " + kindNames[kind]}
-		}
-		if firstAvailable("smartctl") == "" {
-			t.log("smartctl introuvable : installer le paquet smartmontools")
-			return result{Status: statusWarn, Detail: "smartctl non installé"}
-		}
-		if os.Geteuid() != 0 {
-			t.log("La lecture SMART nécessite les droits root (make dev)")
-		}
+		return smartScan(t.ctx, kind, t.log)
+	}
+}
 
-		worst := statusOK
-		var details []string
-		for _, d := range disks {
-			s, detail := smartCheck(t, d)
-			details = append(details, detail)
+// smartScan lit le SMART des disques d'un type ; aussi lancé seul à l'ouverture
+// de gobox, le test ne demande rien au technicien
+func smartScan(ctx context.Context, kind string, logf func(string, ...any)) result {
+	names, err := probe.ListDisks()
+	if err != nil {
+		return result{Status: statusFail, Detail: err.Error()}
+	}
+	var disks []*probe.DiskInfo
+	for _, n := range names {
+		if d, err := probe.GetDiskInfo(n); err == nil && diskKind(d) == kind {
+			disks = append(disks, d)
+		}
+	}
+	if len(disks) == 0 {
+		logf("Aucun %s sur cette machine", kindNames[kind])
+		return result{Status: statusNA, Detail: "Aucun " + kindNames[kind]}
+	}
+	tool := toolPath("smartctl")
+	if tool == "" {
+		logf("smartctl introuvable : installer le paquet smartmontools")
+		return unsupported("smartctl non installé")
+	}
+	if !isAdmin() {
+		logf("La lecture SMART nécessite les droits administrateur")
+		return unsupported("droits administrateur nécessaires")
+	}
+
+	worst, read := statusOK, false
+	var details []string
+	for _, d := range disks {
+		s, detail, ok := smartCheck(ctx, tool, d, logf)
+		details = append(details, detail)
+		if ok {
+			read = true
 			if s > worst {
 				worst = s // ordre : OK < Moyen < Nul
 			}
 		}
-		joined := strings.Join(details, " | ")
-		return result{Status: worst, Detail: joined, Data: map[string]string{"state": joined}}
 	}
+	joined := strings.Join(details, " | ")
+	if !read {
+		return unsupported(joined)
+	}
+	return result{Status: worst, Detail: joined, Data: map[string]string{"state": joined}}
 }
 
-func smartCheck(t *testCtx, d *probe.DiskInfo) (status, string) {
+// smartCheck ok faux si le disque refuse le SMART : on réessaie en SAT, le mode
+// des disques derrière un pont USB ou un contrôleur
+func smartCheck(ctx context.Context, tool string, d *probe.DiskInfo, logf func(string, ...any)) (status, string, bool) {
 	dev := "/dev/" + d.Name
-	model := strings.TrimSpace(d.Vendor + " " + d.Model)
-	t.log("%s : %s", dev, model)
+	logf("%s : %s", dev, strings.TrimSpace(d.Vendor+" "+d.Model))
 
-	// smartctl renvoie un code non nul pour de simples avertissements :
-	// on lit le JSON quoi qu'il arrive.
-	out, _ := exec.CommandContext(t.ctx, "smartctl", "--json", "-H", "-A", dev).Output()
 	var r smartReport
-	if err := json.Unmarshal(out, &r); err != nil {
-		t.log("  Lecture SMART impossible : %v", err)
-		return statusWarn, d.Name + " : SMART illisible"
+	read := false
+	for _, mode := range [][]string{nil, {"-d", "sat"}} {
+		// smartctl renvoie un code non nul pour de simples avertissements :
+		// on lit le JSON quoi qu'il arrive.
+		args := append(append([]string{"--json", "-H", "-A"}, mode...), dev)
+		out, _ := exec.CommandContext(ctx, tool, args...).Output()
+		r = smartReport{}
+		if json.Unmarshal(out, &r) == nil && r.SmartStatus != nil {
+			read = true
+			break
+		}
 	}
 	for _, m := range r.Smartctl.Messages {
-		t.log("  %s", m.String)
+		logf("  %s", m.String)
 	}
-	if r.SmartStatus == nil {
-		return statusWarn, d.Name + " : SMART indisponible"
+	if !read {
+		logf("  SMART non supporté par ce disque")
+		return statusNA, d.Name + " : SMART non supporté", false
 	}
+	s, detail := smartVerdict(d.Name, r)
+	logf("  %s", detail)
+	return s, detail, true
+}
 
+// smartVerdict état et résumé d'un rapport lu
+func smartVerdict(name string, r smartReport) (status, string) {
 	parts := []string{fmt.Sprintf("%d h", r.PowerOnTime.Hours)}
 	s := statusOK
 	if r.NVMeLog != nil {
@@ -131,7 +166,5 @@ func smartCheck(t *testCtx, d *probe.DiskInfo) (status, string) {
 	if !r.SmartStatus.Passed {
 		state, s = "SMART ÉCHEC", statusFail
 	}
-	detail := fmt.Sprintf("%s · %s · %s", d.Name, state, strings.Join(parts, " · "))
-	t.log("  %s", detail)
-	return s, detail
+	return s, fmt.Sprintf("%s · %s · %s", name, state, strings.Join(parts, " · "))
 }

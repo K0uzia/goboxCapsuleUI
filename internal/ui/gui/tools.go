@@ -79,7 +79,7 @@ func newToolsPanel(s *session, win fyne.Window) *toolsPanel {
 func guide() fyne.CanvasObject {
 	steps := []string{
 		"Remplir l'en-tête de la fiche : technicien, aspect, nettoyage.",
-		"Lancer chaque test, suivre ses consignes, puis confirmer le résultat.",
+		"Lancer chaque test et suivre ses consignes : le résultat s'inscrit seul dans la fiche.",
 		"Compléter le stress test, la maintenance et les observations.",
 		"PRINT : enregistrer la fiche en PDF ou l'imprimer.",
 	}
@@ -90,7 +90,7 @@ func guide() fyne.CanvasObject {
 		badge := container.NewStack(newRect(cAccentSoft, "", 11), container.New(&padLayout{h: 7, v: 2}, num))
 		list.Add(container.NewHBox(badge, container.NewCenter(text(s, 13, false, cText))))
 	}
-	list.Add(text("Échap annule un test, Entrée confirme son résultat.", 12, false, cMuted))
+	list.Add(text("Échap annule un test ou revient au menu.", 12, false, cMuted))
 	return box(list, cLine, cSurface)
 }
 
@@ -148,15 +148,23 @@ func (p *toolsPanel) launch(t *testDef) {
 		}
 		r.Duration = time.Since(start)
 		fyne.Do(func() {
-			if p.active == t {
-				p.pending = r
-				p.view.showResult(r)
+			if p.active != t {
+				return
 			}
+			// Inscrit tout de suite. Si le technicien vient de donner son verdict,
+			// retour direct au menu ; sinon le résultat reste affiché pour être lu.
+			p.pending = r
+			p.s.setResult(t.ID, r)
+			if tc.answered && len(r.Advice) == 0 {
+				p.close(false)
+				return
+			}
+			p.view.showResult(r)
 		})
 	}()
 }
 
-// close revient au menu, en enregistrant ou non le résultat
+// close revient au menu ; save inscrit le verdict affiché (corrigé par le technicien)
 func (p *toolsPanel) close(save bool) {
 	if p.cancel != nil {
 		p.cancel()
@@ -173,7 +181,8 @@ func (p *toolsPanel) close(save bool) {
 	}
 }
 
-// typedKey raccourcis : Échap annule le test, Entrée confirme le résultat.
+// typedKey raccourcis : Échap annule le test ou revient au menu, Entrée revient
+// au menu une fois le résultat affiché.
 // Inactifs pendant le test clavier, qui a besoin de toutes les touches.
 func (p *toolsPanel) typedKey(e *fyne.KeyEvent) {
 	if p.active == nil || p.active.ID == "clavier" {
@@ -183,8 +192,8 @@ func (p *toolsPanel) typedKey(e *fyne.KeyEvent) {
 	case fyne.KeyEscape:
 		p.close(false)
 	case fyne.KeyReturn, fyne.KeyEnter:
-		if p.view.finished.Visible() {
-			p.close(true)
+		if p.view.resultBox.Visible() {
+			p.close(false)
 		}
 	}
 }
@@ -192,8 +201,9 @@ func (p *toolsPanel) typedKey(e *fyne.KeyEvent) {
 // ---- Vue d'un test --------------------------------------------------------
 
 type testView struct {
-	p    *toolsPanel
-	root fyne.CanvasObject
+	p      *toolsPanel
+	root   fyne.CanvasObject
+	scroll *container.Scroll
 
 	card, band      *tRect
 	category, title *tText
@@ -276,31 +286,32 @@ func newTestView(p *toolsPanel) *testView {
 		v.resultChoices = append(v.resultChoices, b)
 		choiceObjs = append(choiceObjs, b)
 	}
+	v.finished = container.NewHBox(layout.NewSpacer(),
+		secondaryButton("Relancer", theme.ViewRefreshIcon(), func() { p.launch(p.active) }),
+		primaryButton("Retour au menu", theme.NavigateBackIcon(), func() { p.close(false) }),
+	)
 	v.resultBox = container.NewVBox(
+		v.finished,
 		container.NewStack(v.resultBg, container.New(&padLayout{h: 14, v: 10}, container.NewVBox(
 			container.NewHBox(container.NewCenter(v.resultPill.root), v.resultHead),
 			v.resultDetail, v.resultMeta,
 		))),
 		v.resultAdvice,
-		caption("Verdict inscrit dans la fiche"),
+		caption("Inscrit dans la fiche, cliquer pour corriger"),
 		verdictRow(choiceObjs),
-		text("Modifiable avant de confirmer. Entrée confirme.", 12, false, cMuted),
 	)
 
 	v.running = container.NewHBox(layout.NewSpacer(),
 		dangerButton("Annuler le test", theme.CancelIcon(), func() { p.close(false) }))
-	v.finished = container.NewHBox(layout.NewSpacer(),
-		secondaryButton("Relancer", theme.ViewRefreshIcon(), func() { p.launch(p.active) }),
-		primaryButton("Confirmer et revenir au menu", theme.ConfirmIcon(), func() { p.close(true) }),
-	)
 
 	v.body = container.NewVBox(
 		progress, v.resultBox, v.panel, v.askLabel, v.askButtons, logBox,
-		container.NewStack(v.running, v.finished),
+		v.running,
 	)
 	v.card = newRect(cSurface, cLine, 12)
 	card := container.NewStack(v.card, container.NewVBox(band, container.New(&padLayout{h: 16, v: 12}, v.body)))
-	v.root = container.NewVScroll(card)
+	v.scroll = container.NewVScroll(card)
+	v.root = v.scroll
 	return v
 }
 
@@ -319,7 +330,6 @@ func (v *testView) start(t *testDef) {
 	v.setAsk("", nil, nil)
 	v.setProgress(0)
 	v.resultBox.Hide()
-	v.finished.Hide()
 	v.running.Show()
 	v.body.Refresh()
 }
@@ -466,10 +476,10 @@ func (v *testView) setAsk(prompt string, opts []choice, answer func(status)) {
 	}
 }
 
-// pickVerdict change le verdict qui sera inscrit dans la fiche
+// pickVerdict corrige le verdict inscrit dans la fiche et revient au menu
 func (v *testView) pickVerdict(s status) {
 	v.p.pending.Status = s
-	v.paintVerdict(s)
+	v.p.close(true)
 }
 
 func (v *testView) paintVerdict(s status) {
@@ -500,8 +510,8 @@ func (v *testView) showResult(r result) {
 	v.resultMeta.SetText("Durée : " + formatDuration(r.Duration))
 	v.resultBox.Show()
 	v.running.Hide()
-	v.finished.Show()
 	v.body.Refresh()
+	v.scroll.ScrollToTop()
 }
 
 // formatDuration « 42 s », « 3 min 05 s »

@@ -53,7 +53,7 @@ func TestCaptures(t *testing.T) {
 			}
 			test.Tap(tools.buttons[def.ID])
 			deadline := time.Now().Add(2 * time.Second)
-			for !tools.view.finished.Visible() && time.Now().Before(deadline) {
+			for !tools.view.resultBox.Visible() && time.Now().Before(deadline) {
 				time.Sleep(10 * time.Millisecond)
 			}
 		})

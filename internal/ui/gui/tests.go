@@ -21,6 +21,9 @@ type testCtx struct {
 	ctx  context.Context
 	win  fyne.Window
 	view *testView
+	// le technicien a répondu : le verdict est le sien, inutile de lui montrer le
+	// résultat (lu et écrit sur le fil de l'interface)
+	answered bool
 }
 
 // log ajoute une ligne au journal du test
@@ -56,6 +59,7 @@ func (t *testCtx) ask(prompt string, opts ...choice) <-chan status {
 	ch := make(chan status, 1)
 	fyne.Do(func() {
 		t.view.setAsk(prompt, opts, func(s status) {
+			t.answered = true
 			select {
 			case ch <- s:
 			default:
