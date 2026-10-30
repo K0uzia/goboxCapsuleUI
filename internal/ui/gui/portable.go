@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -109,57 +110,83 @@ func removeTraces() {
 	}
 }
 
-// CheckTools diagnostic de `gobox --verifier-outils` : chaque outil est-il trouvé
-// et se lance-t-il ? Rend le code de sortie.
+// CheckTools diagnostic de `gobox --verifier-outils` ; rend le code de sortie
 func CheckTools() int {
 	cleanup := prepareTools()
 	defer cleanup()
-	code := 0
+	report, ok := diagnosticReport()
+	fmt.Print(report)
+	if !ok {
+		return 1
+	}
+	return 0
+}
+
+// diagnosticReport état des outils et des prises USB, à transmettre pour comprendre
+// une détection incorrecte ; ok faux si un outil manque ou échoue
+func diagnosticReport() (string, bool) {
+	var b strings.Builder
+	ok := true
+	m := readMachine()
+	fmt.Fprintf(&b, "Machine : %s\nDroits administrateur : %v\nSession live : %v\n\n", m.Name(), isAdmin(), isLiveSession())
 	for _, t := range []struct {
 		name string
 		args []string
 	}{{"smartctl", []string{"--version"}}, {"dmidecode", []string{"--version"}}, {"lspci", nil}, {"iw", []string{"--version"}}} {
 		path := toolPath(t.name)
 		if path == "" {
-			fmt.Printf("%-10s introuvable\n", t.name)
-			code = 1
+			fmt.Fprintf(&b, "%-10s introuvable\n", t.name)
+			ok = false
 			continue
 		}
 		out, err := exec.Command(path, t.args...).CombinedOutput()
 		first, _, _ := strings.Cut(string(out), "\n")
 		if err != nil {
-			fmt.Printf("%-10s ERREUR %v (%s) : %s\n", t.name, err, path, first)
-			code = 1
+			fmt.Fprintf(&b, "%-10s ERREUR %v (%s) : %s\n", t.name, err, path, first)
+			ok = false
 			continue
 		}
-		fmt.Printf("%-10s OK (%s) : %s\n", t.name, path, first)
+		fmt.Fprintf(&b, "%-10s OK (%s)\n", t.name, path)
 	}
-	reportUSB()
-	return code
+	b.WriteString("\n" + usbReport())
+	return b.String(), ok
 }
 
-// reportUSB détail des prises USB, pour comprendre une détection de type incorrecte
-func reportUSB() {
-	loadTypeCDriver()
+// usbReport détail des prises USB, du Type-C et de la liste du BIOS
+func usbReport() string {
+	var b strings.Builder
 	phys := readPhysicalPorts()
 	ports := readUSBPorts(max(phys.USB, 0))
 	ports.typeC = max(ports.typeC, phys.USBC)
-	fmt.Printf("USB : %v, total %d\n", ports.kindTotals(), ports.total)
+	fmt.Fprintf(&b, "USB : %v, total %d\n", ports.kindTotals(), ports.total)
 	typeC, _ := filepath.Glob("/sys/class/typec/*")
 	thunderbolt, _ := filepath.Glob("/sys/bus/thunderbolt/devices/domain*")
-	fmt.Printf("Type-C : %d entrée(s) dans /sys/class/typec, BIOS %d, thunderbolt %d\n", len(typeC), phys.USBC, len(thunderbolt))
+	fmt.Fprintf(&b, "Type-C : %d entrée(s) dans /sys/class/typec, BIOS %d, thunderbolt %d\n", len(typeC), phys.USBC, len(thunderbolt))
+	var lines []string
 	for name, key := range ports.group {
-		fmt.Printf("  %s : prise %s, %s\n", name, key, ports.kindOf(key))
+		lines = append(lines, fmt.Sprintf("  %s : prise %s, %s", name, key, ports.kindOf(key)))
 	}
 	for name := range ports.possible {
-		fmt.Printf("  %s : non renseigné par le BIOS\n", name)
+		lines = append(lines, fmt.Sprintf("  %s : non renseigné par le BIOS", name))
+	}
+	sort.Strings(lines)
+	b.WriteString(strings.Join(lines, "\n") + "\n\n")
+	if tool := toolPath("lspci"); tool != "" {
+		if out, err := exec.Command(tool).Output(); err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				if l := strings.ToLower(line); strings.Contains(l, "usb") || strings.Contains(l, "thunderbolt") {
+					b.WriteString(line + "\n")
+				}
+			}
+		}
 	}
 	if tool := toolPath("dmidecode"); tool != "" {
 		out, err := exec.Command(tool, "-t", "8").CombinedOutput()
 		if err != nil {
-			fmt.Printf("dmidecode : %v (droits administrateur ?)\n", err)
-			return
+			fmt.Fprintf(&b, "dmidecode -t 8 : %v (droits administrateur ?)\n", err)
+		} else {
+			b.WriteString("\n" + string(out))
 		}
-		fmt.Printf("%s\n", out)
 	}
+	return b.String()
 }

@@ -486,6 +486,16 @@ func TestPopupClosesOnOutsideTap(t *testing.T) {
 	}
 }
 
+// Le diagnostic décrit les outils et les prises, sans commande à taper.
+func TestDiagnosticReport(t *testing.T) {
+	report, _ := diagnosticReport()
+	for _, want := range []string{"Machine :", "smartctl", "USB :", "Type-C :"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("rapport sans %q", want)
+		}
+	}
+}
+
 // Sans liste du BIOS, seules les cartes non Intel décrivent la machine.
 func TestGPUPorts(t *testing.T) {
 	conns := []videoConnector{{Type: "DisplayPort"}, {Type: "HDMI"}, {Type: "HDMI"}, {Type: internalScreen}}

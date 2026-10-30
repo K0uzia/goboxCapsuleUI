@@ -298,9 +298,32 @@ func showInfo(s *session, w fyne.Window) {
 		formRow("Fiche en cours", text(s.Ref, 13, true, cText)),
 		sectionTitle("Raccourcis clavier"),
 		keys,
+		container.NewHBox(secondaryButton("Diagnostic matériel", buttonIcon("microchip"), func() { showDiagnostic(w) })),
 		mutedNote("Icônes : Font Awesome Free (CC BY 4.0). Polices : Exo 2 et Share Tech Mono (SIL OFL 1.1)."),
 	)
 	showPopup(w, "À propos", content)
+}
+
+// showDiagnostic rapport à copier pour transmettre l'état de la machine, sans passer
+// par une commande
+func showDiagnostic(w fyne.Window) {
+	report := widget.NewLabel("Lecture du matériel…")
+	report.Wrapping = fyne.TextWrapWord
+	report.TextStyle.Monospace = true
+	view := container.NewVScroll(report)
+	view.SetMinSize(fyne.NewSize(440, 380))
+	text := ""
+	copyBtn := primaryButton("Copier le diagnostic", coloredIcon("copy", cAccentText), func() {
+		fyne.CurrentApp().Clipboard().SetContent(text)
+	})
+	showPopup(w, "Diagnostic matériel", container.NewVBox(view, container.NewHBox(copyBtn)))
+	go func() {
+		out, _ := diagnosticReport()
+		fyne.Do(func() {
+			text = out
+			report.SetText(out)
+		})
+	}()
 }
 
 // showSettings réglages de la session (perdus au redémarrage du PC)
