@@ -67,7 +67,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-10-30 | Résultat inscrit dans la fiche sans confirmation ; retour direct au menu après un verdict du technicien | demande de l'humain : validation trop longue |
 | 2026-10-30 | Étapes centrées en haut, À propos et Réglages après PRINT | demande de l'humain |
 | 2026-10-30 | Prises vidéo et USB : seulement celles présentes, avec leur quantité et leur type réel (USB 2.0, 3.x, USB-C ; VGA reconnu par l'EDID) | demande de l'humain |
-| 2026-10-30 | `make build` : binaire portable (conteneur glibc 2.28) et paquets `.rpm` et `.deb` installables en double-clic, outils embarqués (smartctl, dmidecode, lspci) | Nautilus ne lance pas un binaire au double-clic ; rien ne doit rester à installer sur le PC |
+| 2026-10-30 | `make build` : un seul fichier `build/gobox`, portable (conteneur glibc 2.28), outils inclus (smartctl, dmidecode, lspci) extraits en temporaire ; ni paquet ni installation | le PC part ensuite en vente : rien ne doit y rester |
 | 2026-10-27 | Tracebay-Autonome (tout sur un poste, système de licence) : source principale pour la logique ; Tracebay (serveur séparé sur le réseau) : source pour le fonctionnement en réseau | réponse d'interview |
 
 ## Modèle à respecter
@@ -110,7 +110,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 - Tout champ de saisie (Entry) placé dans une zone qui défile passe par `fichePanel.pass` (couche `scrollPass`) : le défilement interne d'un champ Fyne garde la molette et bloque la zone (`internal/widget/scroller.go:616` de Fyne). Test : `TestFicheScrollOverField`.
 - Aucune fenêtre ni aucun navigateur ouvert au premier plan sur l'écran de l'humain, rien qui prenne le focus. Captures de l'application : rendu en mémoire, `GOBOX_CAPTURES=<dossier> go test -run TestCaptures ./internal/ui/gui` (`internal/ui/gui/capture_test.go`). Captures web : navigateur sans interface (demande de l'humain, 2026-10-28).
 
-- Rien ne doit rester à installer sur le PC (image live) : tout outil utilisé par gobox est embarqué dans le paquet ou signalé comme manquant à l'humain. Audio, webcam et réglages du bureau restent ceux du système.
+- Le PC reconditionné part en vente : gobox n'y installe rien et n'y laisse rien. Ni paquet, ni installation, ni fichier à la fermeture (test `TestRemoveTraces`). Tout outil utilisé est inclus dans le binaire ou signalé comme manquant à l'humain. Audio, webcam et réglages du bureau restent ceux du système.
 - Claude tient ce mode d'emploi à jour seul, à chaque décision ou erreur, sans demander de validation ; il lit le mode d'emploi avant de proposer une solution (demande de l'humain, 2026-10-30).
 - Aucune donnée propre à un PC ou à un technicien n'est enregistrée localement (`fyne.Preferences` exclu) : image live partagée.
 - P1 : `docs/todo/*.md` utilise des emoji et des tirets cadratin (contraire à `web-method` « Tirets ») : à traiter seulement si l'humain le demande.
@@ -134,5 +134,6 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-10-30 | Test clavier muet après le correctif de Tab | `SetOnKeyDown` n'est appelé que sans widget focalisé | le widget qui garde le focus reçoit les touches (`desktop.Keyable`), test `TestKeyboardKeepsFocus` |
 | 2026-10-30 | Brave ouvert au lieu du navigateur par défaut | `xdg-settings` sans bureau dans l'environnement (pkexec, sudo) | navigateur lu dans `mimeapps.list`, test `TestFindDefaultBrowser` |
 | 2026-10-30 | Outils laissés en dépendances alors que le PC démarre sur une image live | contexte du mode d'emploi non appliqué | outils embarqués (« Règles propres au projet ») |
+| 2026-10-30 | Paquets `.rpm` et `.deb` proposés, qui installent sur un PC destiné à la vente | contrainte de vente absente du mode d'emploi, et pas vérifiée avant de choisir | règle « gobox n'y installe rien et n'y laisse rien » (« Règles propres au projet ») |
 | 2026-10-30 | Mode d'emploi non tenu à jour, validations redemandées | règle du kit suivie à la lettre | mise à jour autonome (« Règles propres au projet ») |
 | 2026-10-28 | Défilement de la fiche bloqué quand le pointeur passe sur un champ de saisie (signalé par l'humain) | défilement interne des champs Fyne qui garde la molette ; aucun test de défilement | couche de renvoi de la molette et test automatique (« Règles propres au projet ») |

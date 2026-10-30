@@ -1,7 +1,9 @@
 package gui
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -175,13 +177,76 @@ func TestUSBKinds(t *testing.T) {
 	}
 }
 
-// Les outils du système passent avant ceux du paquet.
-func TestWithEmbeddedTools(t *testing.T) {
-	if got := withEmbeddedTools("/usr/bin"); got != "/usr/bin:"+embeddedTools {
+// Les outils du système passent avant ceux embarqués.
+func TestWithTools(t *testing.T) {
+	if got := withTools("/usr/bin", "/tmp/x"); got != "/usr/bin:/tmp/x" {
 		t.Errorf("PATH : %q", got)
 	}
-	if got := withEmbeddedTools(""); got != embeddedTools {
+	if got := withTools("", "/tmp/x"); got != "/tmp/x" {
 		t.Errorf("PATH vide : %q", got)
+	}
+}
+
+// L'archive des outils s'extrait, droits compris, et un chemin qui sort du dossier
+// temporaire est refusé.
+func TestExtractTools(t *testing.T) {
+	build := func(name string) []byte {
+		var b bytes.Buffer
+		gz := gzip.NewWriter(&b)
+		tw := tar.NewWriter(gz)
+		if err := tw.WriteHeader(&tar.Header{Name: "./bin/", Typeflag: tar.TypeDir, Mode: 0o755}); err != nil {
+			t.Fatal(err)
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o755, Size: 2}); err != nil {
+			t.Fatal(err)
+		}
+		tw.Write([]byte("ok"))
+		tw.Close()
+		gz.Close()
+		return b.Bytes()
+	}
+	dir := t.TempDir()
+	if err := extractTools(build("./bin/outil"), dir); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(dir, "bin", "outil"))
+	if err != nil || info.Mode()&0o100 == 0 {
+		t.Fatalf("outil extrait : %v, %v", info, err)
+	}
+	if err := extractTools(build("../sorti"), dir); err == nil {
+		t.Fatal("chemin hors du dossier accepté")
+	}
+}
+
+// À la fermeture, gobox efface les dossiers de Fyne et ses fiches, sans toucher à
+// ce qui ne lui appartient pas.
+func TestRemoveTraces(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "c"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "g"))
+	own := filepath.Join(home, "c", "fyne", appID)
+	other := filepath.Join(home, "g", "fyne", "autre.appli")
+	ownConfig := filepath.Join(home, "g", "fyne", appID)
+	for _, d := range []string{own, other, ownConfig} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fiche := filepath.Join(home, "Fiche.pdf")
+	if err := os.WriteFile(fiche, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ficheFiles = []string{fiche}
+	defer func() { ficheFiles = nil }()
+	removeTraces()
+	for _, gone := range []string{own, filepath.Join(home, "c", "fyne"), ownConfig, fiche} {
+		if _, err := os.Stat(gone); err == nil {
+			t.Errorf("%s reste sur le disque", gone)
+		}
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("le dossier d'une autre application a été effacé : %v", err)
 	}
 }
 

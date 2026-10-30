@@ -23,6 +23,7 @@ func writeFiche(s *session) (string, error) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return "", err
 	}
+	ficheFiles = append(ficheFiles, path)
 	return path, nil
 }
 

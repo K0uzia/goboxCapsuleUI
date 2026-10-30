@@ -47,7 +47,8 @@ $ENGINE run --rm $USER_ARGS --security-opt label=disable \
 	-e TAGS="$TAGS" -e LDFLAGS="$LDFLAGS" -e OUTPUT="$OUTPUT" -e MAIN_PKG="$MAIN_PKG" -e MAX_GLIBC="$MAX_GLIBC" \
 	"$IMAGE" sh -c '
 		set -eu
-		go build ${TAGS:+-tags "$TAGS"} -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT" "$MAIN_PKG"
+		sh packaging/build-tools.sh internal/ui/gui/outils.tar.gz
+		go build -tags "$TAGS embedtools" -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT" "$MAIN_PKG"
 		needed=$(objdump -T "$OUTPUT" | grep -oE "GLIBC_[0-9.]+" | sed s/GLIBC_// | sort -Vu | tail -1)
 		highest=$(printf "%s\n%s\n" "$needed" "$MAX_GLIBC" | sort -V | tail -1)
 		if [ "$highest" != "$MAX_GLIBC" ]; then
@@ -56,5 +57,4 @@ $ENGINE run --rm $USER_ARGS --security-opt label=disable \
 			exit 1
 		fi
 		echo "Contrôle réussi : compatible avec les distributions à glibc $needed ou plus récente"
-		sh packaging/build-packages.sh
 	'

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Installe gobox pour tous les utilisateurs : icône dans le menu des applications.
+# Ajoute gobox à une image live en préparation : icône dans le menu des applications.
+# Jamais sur le PC à reconditionner, qui part ensuite en vente.
 # Usage : sudo sh install.sh [binaire]
 set -eu
 DIR=$(dirname "$0")
