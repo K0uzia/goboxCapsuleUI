@@ -278,58 +278,6 @@ func (p *pill) set(s status) {
 	p.text.Refresh()
 }
 
-// pulseDot puce qui pulse : ce qui reste à remplir pour commencer
-type pulseDot struct {
-	root       *fyne.Container
-	core, halo *canvas.Circle
-	anim       *fyne.Animation
-	running    bool
-}
-
-const (
-	pulseSize = 26
-	pulseCore = 12
-)
-
-func newPulseDot() *pulseDot {
-	p := &pulseDot{core: canvas.NewCircle(color.Transparent), halo: canvas.NewCircle(color.Transparent)}
-	p.root = container.New(&fixedLayout{size: fyne.NewSize(pulseSize, pulseSize)}, p.halo, p.core)
-	p.core.Resize(fyne.NewSize(pulseCore, pulseCore))
-	p.core.Move(fyne.NewPos((pulseSize-pulseCore)/2, (pulseSize-pulseCore)/2))
-	p.anim = fyne.NewAnimation(900*time.Millisecond, p.tick)
-	p.anim.RepeatCount = fyne.AnimationRepeatForever
-	p.anim.Curve = fyne.AnimationEaseOut
-	p.tick(0.5)
-	return p
-}
-
-func (p *pulseDot) tick(f float32) {
-	c := col(cAccent)
-	r, g, b, _ := c.RGBA()
-	d := pulseCore + f*(pulseSize-pulseCore)
-	p.core.FillColor = c
-	p.halo.FillColor = color.NRGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(220 * (1 - f))}
-	p.halo.Resize(fyne.NewSize(d, d))
-	p.halo.Move(fyne.NewPos((pulseSize-d)/2, (pulseSize-d)/2))
-	p.core.Refresh()
-	p.halo.Refresh()
-}
-
-// show affiche la puce et l'anime, ou la masque et l'arrête
-func (p *pulseDot) show(on bool) {
-	if on == p.root.Visible() && p.running == on {
-		return
-	}
-	p.running = on
-	if on {
-		p.root.Show()
-		p.anim.Start()
-		return
-	}
-	p.anim.Stop()
-	p.root.Hide()
-}
-
 // fixedLayout taille fixe ; les objets se placent eux-mêmes
 type fixedLayout struct{ size fyne.Size }
 
@@ -699,4 +647,117 @@ func (c *choiceBar) paint() {
 		it.label.Role, it.label.Bold = fg, bold
 		it.label.Refresh()
 	}
+}
+
+// ---- Cadre en pointillés qui tourne ----------------------------------------
+
+// marchFrame cadre en pointillés dont les tirets font le tour du champ : signale
+// une information à remplir. Animation arrêtée quand il est masqué.
+type marchFrame struct {
+	widget.BaseWidget
+	lines   []*canvas.Line
+	root    *fyne.Container
+	size    fyne.Size
+	offset  float32
+	anim    *fyne.Animation
+	running bool
+}
+
+const (
+	marchDash   = 7
+	marchGap    = 5
+	marchStroke = 2
+)
+
+func newMarchFrame() *marchFrame {
+	m := &marchFrame{root: container.NewWithoutLayout()}
+	m.anim = fyne.NewAnimation(1200*time.Millisecond, func(f float32) {
+		m.offset = f * (marchDash + marchGap)
+		m.draw()
+	})
+	m.anim.RepeatCount = fyne.AnimationRepeatForever
+	m.anim.Curve = fyne.AnimationLinear
+	m.ExtendBaseWidget(m)
+	return m
+}
+
+func (m *marchFrame) CreateRenderer() fyne.WidgetRenderer { return &marchRenderer{m} }
+
+type marchRenderer struct{ m *marchFrame }
+
+func (r *marchRenderer) Layout(s fyne.Size) {
+	r.m.size = s
+	r.m.root.Resize(s)
+	r.m.draw()
+}
+func (r *marchRenderer) MinSize() fyne.Size           { return fyne.NewSize(0, 0) }
+func (r *marchRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{r.m.root} }
+func (r *marchRenderer) Destroy()                     { r.m.anim.Stop() }
+func (r *marchRenderer) Refresh()                     { r.m.draw() }
+
+// draw place les tirets le long du contour, décalés de offset
+func (m *marchFrame) draw() {
+	w, h := m.size.Width-marchStroke, m.size.Height-marchStroke
+	if w <= 0 || h <= 0 {
+		return
+	}
+	o := float32(marchStroke) / 2
+	// point du contour à la distance d, dans le sens des aiguilles d'une montre
+	at := func(d float32) fyne.Position {
+		switch {
+		case d < w:
+			return fyne.NewPos(o+d, o)
+		case d < w+h:
+			return fyne.NewPos(o+w, o+d-w)
+		case d < 2*w+h:
+			return fyne.NewPos(o+w-(d-w-h), o+h)
+		}
+		return fyne.NewPos(o, o+h-(d-2*w-h))
+	}
+	corners := []float32{w, w + h, 2*w + h, 2 * (w + h)}
+	perim := 2 * (w + h)
+	n := 0
+	ink := col(cAccent)
+	for start := m.offset - (marchDash + marchGap); start < perim; start += marchDash + marchGap {
+		a, b := max(start, 0), min(start+marchDash, perim)
+		for a < b { // un tiret qui passe un coin est coupé en deux
+			end := b
+			for _, c := range corners {
+				if c > a && c < end {
+					end = c
+				}
+			}
+			if n == len(m.lines) {
+				l := canvas.NewLine(ink)
+				l.StrokeWidth = marchStroke
+				m.lines = append(m.lines, l)
+				m.root.Add(l)
+			}
+			l := m.lines[n]
+			l.StrokeColor = ink
+			l.Position1, l.Position2 = at(a), at(end-0.01)
+			l.Show()
+			l.Refresh()
+			n++
+			a = end
+		}
+	}
+	for _, l := range m.lines[n:] {
+		l.Hide()
+	}
+}
+
+// show affiche le cadre et le fait tourner, ou le masque et l'arrête
+func (m *marchFrame) show(on bool) {
+	if on == m.running && on == m.Visible() {
+		return
+	}
+	m.running = on
+	if on {
+		m.Show()
+		m.anim.Start()
+		return
+	}
+	m.anim.Stop()
+	m.Hide()
 }

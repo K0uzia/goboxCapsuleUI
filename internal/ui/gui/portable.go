@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"gobox/internal/probe"
 )
 
 // Rien ne reste sur le PC, qui part ensuite en vente : gobox n'installe rien, ses
@@ -148,8 +150,59 @@ func diagnosticReport() (string, bool) {
 		}
 		fmt.Fprintf(&b, "%-10s OK (%s)\n", t.name, path)
 	}
-	b.WriteString("\n" + usbReport())
+	b.WriteString("\n" + powerReport(sysPower) + "\n" + diskReport("/sys/block") + "\n" + keyboardReport() + "\n" + usbReport())
 	return b.String(), ok
+}
+
+// powerReport valeurs brutes de chaque source d'alimentation (batterie, secteur)
+func powerReport(root string) string {
+	var b strings.Builder
+	b.WriteString("Alimentation (/sys/class/power_supply) :\n")
+	dirs, _ := filepath.Glob(filepath.Join(root, "*"))
+	if len(dirs) == 0 {
+		b.WriteString("  aucune entrée\n")
+	}
+	for _, d := range dirs {
+		fmt.Fprintf(&b, "  %s : batterie du PC %v\n", filepath.Base(d), probe.IsSystemBattery(d))
+		for _, f := range []string{"type", "scope", "status", "capacity", "cycle_count", "energy_full", "energy_full_design",
+			"charge_full", "charge_full_design", "voltage_min_design", "voltage_now", "online"} {
+			if v, err := os.ReadFile(filepath.Join(d, f)); err == nil {
+				fmt.Fprintf(&b, "    %s = %s\n", f, strings.TrimSpace(string(v)))
+			}
+		}
+	}
+	if d := batteryDir(root); d != "" {
+		info, err := probe.ReadBattery(d)
+		fmt.Fprintf(&b, "  lecture : %+v, erreur %v\n", info, err)
+	}
+	return b.String()
+}
+
+// diskReport chaque disque de /sys/block, son chemin réel et s'il est retenu
+func diskReport(root string) string {
+	var b strings.Builder
+	b.WriteString("Disques (/sys/block) :\n")
+	dirs, _ := filepath.Glob(filepath.Join(root, "*"))
+	for _, d := range dirs {
+		if strings.HasPrefix(filepath.Base(d), "loop") {
+			continue
+		}
+		real, _ := filepath.EvalSymlinks(d)
+		fmt.Fprintf(&b, "  %s : interne %v, removable %s, rotatif %s, %s\n", filepath.Base(d), probe.IsInternalDisk(d),
+			readTrim(filepath.Join(d, "removable")), readTrim(filepath.Join(d, "queue", "rotational")), real)
+	}
+	return b.String()
+}
+
+// keyboardReport ce qui sert à reconnaître le clavier : châssis, capot, claviers
+// vus par le noyau
+func keyboardReport() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Clavier : châssis %q, capot %v, portable %v\n", readTrim("/sys/class/dmi/id/chassis_type"), hasLid(sysInput), isLaptop("/sys/class/dmi/id", sysPower))
+	for _, k := range inputKeyboards(sysInput) {
+		fmt.Fprintf(&b, "  %s (%s)\n", k.Name, k.Phys)
+	}
+	return b.String()
 }
 
 // usbReport détail des prises USB, du Type-C et de la liste du BIOS

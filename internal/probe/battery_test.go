@@ -83,8 +83,9 @@ func TestIsInternalDisk(t *testing.T) {
 	if IsInternalDisk(mk("pci0000:00/0000:00:14.0/usb2/2-1/sdb", "0")) {
 		t.Fatal("clé USB comptée comme disque interne")
 	}
-	if IsInternalDisk(mk("virtual/sdc", "1")) {
-		t.Fatal("disque amovible compté comme disque interne")
+	// port SATA « branchable à chaud » : le noyau marque le disque interne removable
+	if !IsInternalDisk(mk("pci0000:00/0000:00:17.0/ata2/sdc", "1")) {
+		t.Fatal("disque SATA interne marqué removable exclu")
 	}
 	if IsInternalDisk(mk("virtual/loop0", "0")) {
 		t.Fatal("disque virtuel compté")

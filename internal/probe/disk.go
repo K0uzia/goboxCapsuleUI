@@ -83,7 +83,9 @@ func ListDisks() ([]string, error) {
 
 // IsInternalDisk vrai pour un disque de la machine : ni clé ou disque USB, ni
 // carte SD, ni lecteur optique, ni disque virtuel. Une clé USB se déclare
-// souvent « rotative » et passerait sinon pour un disque dur.
+// souvent « rotative » et passerait sinon pour un disque dur. L'attribut
+// removable ne sert pas : le noyau le met aussi sur un disque SATA interne dont
+// le port est déclaré « branchable à chaud » par le BIOS.
 func IsInternalDisk(dir string) bool {
 	name := filepath.Base(dir)
 	for _, p := range []string{"loop", "ram", "zram", "sr", "dm-", "md", "fd", "nbd"} {
@@ -92,9 +94,6 @@ func IsInternalDisk(dir string) bool {
 		}
 	}
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return false
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "removable")); strings.TrimSpace(string(b)) == "1" {
 		return false
 	}
 	real, err := filepath.EvalSymlinks(dir)

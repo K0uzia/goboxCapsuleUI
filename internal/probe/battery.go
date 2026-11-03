@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"gobox/internal/sysfs"
@@ -132,11 +133,17 @@ func ReadBattery(path string) (BatteryInfo, error) {
 // souris ou d'un clavier sans fil (scope Device). Le nom varie : BAT0, BAT1,
 // CMB0, battery…
 func IsSystemBattery(dir string) bool {
-	if typ, _ := sysfs.ReadFileOptional(filepath.Join(dir, "type")); typ != "Battery" {
+	name := strings.ToUpper(filepath.Base(dir))
+	typ, err := sysfs.ReadFile(filepath.Join(dir, "type"))
+	switch {
+	case err != nil:
+		// type illisible : on se fie au nom, comme avant
+		return strings.HasPrefix(name, "BAT")
+	case !strings.EqualFold(typ, "Battery"):
 		return false
 	}
 	scope, _ := sysfs.ReadFileOptional(filepath.Join(dir, "scope"))
-	return scope != "Device"
+	return !strings.EqualFold(scope, "Device") && !strings.HasPrefix(name, "HID")
 }
 
 func findBatteryPath() (string, error) {

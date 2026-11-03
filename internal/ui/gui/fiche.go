@@ -18,9 +18,8 @@ type fichePanel struct {
 	root     fyne.CanvasObject
 	scroll   *container.Scroll
 	notes    *widget.Entry
-	techRing *tRect
+	techRing *marchFrame
 	techHint *tText
-	techDot  *pulseDot
 	reqs     []reqMark // champs à remplir, signalés tant qu'ils sont vides
 	todo     *tText    // « À remplir : … » dans l'en-tête fixe
 
@@ -67,12 +66,9 @@ func newFichePanel(s *session) *fichePanel {
 	header := container.NewBorder(nil, nil, nil, progress, container.NewVBox(ref, title, date))
 	// Tant que le technicien manque, son champ est entouré et signalé : c'est
 	// la première étape
-	f.techRing = newRect("", cAccent, 7)
-	f.techRing.StrokeWidth = 2
+	f.techRing = newMarchFrame()
 	f.techHint = text("À remplir pour commencer", 12, true, cAccent)
-	f.techDot = newPulseDot()
 	techRow := container.NewHBox(
-		container.NewCenter(f.techDot.root),
 		container.NewVBox(layout.NewSpacer(), text("Fait par", 13, false, cMuted), layout.NewSpacer()),
 		container.New(&widthLayout{w: 260}, container.NewStack(tech, f.techRing)),
 		container.NewCenter(f.techHint),
@@ -141,39 +137,30 @@ func newFichePanel(s *session) *fichePanel {
 	return f
 }
 
-// reqMark champ à remplir : contour et puce tant qu'il est vide
+// reqMark champ à remplir : cadre en pointillés qui tourne tant qu'il est vide
 type reqMark struct {
-	ring  *tRect
-	dot   *pulseDot
+	frame *marchFrame
 	empty func() bool
 }
 
 // requiredBox cadre d'un champ de la fiche, signalé tant qu'il est vide
 func (f *fichePanel) requiredBox(title string, field fyne.CanvasObject, empty func() bool) fyne.CanvasObject {
-	ring := newRect("", cAccent, 8)
-	ring.StrokeWidth = 2
-	dot := newPulseDot()
-	f.reqs = append(f.reqs, reqMark{ring, dot, empty})
-	head := container.NewHBox(caption(title), container.NewCenter(dot.root))
-	return container.NewStack(box(container.NewVBox(head, field), cLine, cSurface), ring)
+	frame := newMarchFrame()
+	f.reqs = append(f.reqs, reqMark{frame, empty})
+	return container.NewStack(box(container.NewVBox(caption(title), field), cLine, cSurface), frame)
 }
 
 // requiredRow ligne de la fiche (libellé et choix), signalée tant qu'elle est vide
 func (f *fichePanel) requiredRow(label string, field fyne.CanvasObject, empty func() bool) fyne.CanvasObject {
-	ring := newRect("", cAccent, 6)
-	ring.StrokeWidth = 2
-	dot := newPulseDot()
-	f.reqs = append(f.reqs, reqMark{ring, dot, empty})
-	return listRow(container.NewHBox(text(label, 13, false, cText), container.NewCenter(dot.root)), container.NewStack(field, ring))
+	frame := newMarchFrame()
+	f.reqs = append(f.reqs, reqMark{frame, empty})
+	return listRow(text(label, 13, false, cText), container.NewStack(field, frame))
 }
 
 // updateRequired signale chaque champ vide et liste ce qui reste à remplir
 func (f *fichePanel) updateRequired() {
 	for _, r := range f.reqs {
-		e := r.empty()
-		r.ring.Hidden = !e
-		r.ring.Refresh()
-		r.dot.show(e)
+		r.frame.show(r.empty())
 	}
 	missing := f.s.missingInfo()
 	f.todo.Hidden = len(missing) == 0
@@ -350,10 +337,8 @@ func inventoryCard(c ficheSection) fyne.CanvasObject {
 
 // showTechHint signale le champ technicien tant qu'il est vide
 func (f *fichePanel) showTechHint() {
-	f.techRing.Hidden = f.s.Form.Tech != ""
-	f.techHint.Hidden = f.techRing.Hidden
-	f.techDot.show(f.s.Form.Tech == "")
-	f.techRing.Refresh()
+	f.techRing.show(f.s.Form.Tech == "")
+	f.techHint.Hidden = f.s.Form.Tech != ""
 	f.techHint.Refresh()
 }
 

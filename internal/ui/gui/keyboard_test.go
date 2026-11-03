@@ -3,46 +3,53 @@ package gui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// Plan sans touche en double ni touche qui en chevauche une autre
+// Plans sans touche ni code en double, sans chevauchement
 func TestKeyboardPlan(t *testing.T) {
-	seen := map[int]bool{}
-	for i, a := range keyboardKeys {
-		if seen[a.Code] {
-			t.Fatalf("code %d en double", a.Code)
-		}
-		seen[a.Code] = true
-		if a.X+a.W > keyboardCols || a.Y+a.H > keyboardRows {
-			t.Fatalf("touche %s hors du plan", a.Azerty)
-		}
-		for _, b := range keyboardKeys[i+1:] {
-			if a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H {
-				t.Fatalf("%s chevauche %s", a.Azerty, b.Azerty)
+	for _, laptop := range []bool{false, true} {
+		plan := keyboardPlan(laptop)
+		seen := map[int]bool{}
+		for i, a := range plan {
+			for _, c := range append([]int{a.Code}, a.Alt...) {
+				if seen[c] {
+					t.Fatalf("portable %v : code %d en double", laptop, c)
+				}
+				seen[c] = true
+			}
+			if a.X+a.W > keyboardCols || a.Y+a.H > keyboardRows {
+				t.Fatalf("touche %s hors du plan", a.Azerty)
+			}
+			for _, b := range plan[i+1:] {
+				if a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H {
+					t.Fatalf("portable %v : %s chevauche %s", laptop, a.Azerty, b.Azerty)
+				}
 			}
 		}
 	}
 }
 
-// Portable : pavé numérique grisé, un appui sur une de ses touches fait
-// apparaître tout le pavé ; une touche grisée ne compte pas
+// Portable : pavé grisé qui apparaît au premier appui, Impr testée par Fn + Inser,
+// touches de son qui apparaissent ensemble
 func TestKeyboardLaptopModel(t *testing.T) {
-	m := newKeyboardModel(true)
-	if m.hasSection(secPad) || m.kind() != "sans pavé numérique" {
+	m := newKeyboardModel(keyboardPlan(true))
+	if m.hasSection(secPad) || m.hasSection(secMedia) || m.kind() != "sans pavé numérique" {
 		t.Fatalf("portable : %s", m.kind())
 	}
 	_, laptopTotal := m.counts()
 	m.press(84) // 5 du pavé
-	if !m.hasSection(secPad) || m.kind() != "clavier complet" {
-		t.Fatal("un appui sur le pavé doit le faire apparaître")
+	if _, total := m.counts(); !m.hasSection(secPad) || total != laptopTotal+17 {
+		t.Fatalf("pavé non apparu : %d touches", total)
 	}
-	if _, total := m.counts(); total != laptopTotal+17 {
-		t.Fatalf("total %d, attendu %d (pavé de 17 touches)", total, laptopTotal+17)
+	m.press(107) // Impr = Fn + Inser
+	if !m.pressed[118] || !m.present[118] {
+		t.Fatal("Impr doit valider la touche Inser")
 	}
-	m.press(110) // Début, grisée sur un portable
-	if !m.present[110] {
-		t.Fatal("une touche grisée appuyée existe")
+	m.press(122) // Volume −
+	if !m.present[121] || !m.present[123] || m.present[232] || !strings.Contains(m.kind(), "multimédia") {
+		t.Fatal("les trois touches de son apparaissent ensemble, pas la luminosité")
 	}
 	if !m.toggle(119) || m.present[119] {
 		t.Fatal("Suppr doit pouvoir être retirée")
@@ -50,9 +57,31 @@ func TestKeyboardLaptopModel(t *testing.T) {
 	if m.toggle(84) {
 		t.Fatal("une touche appuyée ne se retire pas")
 	}
-	full := newKeyboardModel(false)
-	if _, total := full.counts(); total != len(keyboardKeys) {
-		t.Fatalf("poste fixe : %d touches attendues, %d", len(keyboardKeys), total)
+	if m.known(152) {
+		t.Fatal("touche du constructeur hors du plan")
+	}
+}
+
+// Bureau : Impr, Défil et Pause sont des touches à part, tout est attendu sauf le
+// multimédia
+func TestKeyboardDesktopModel(t *testing.T) {
+	m := newKeyboardModel(keyboardPlan(false))
+	if !m.present[107] || !m.hasSection(secPad) || m.hasSection(secMedia) {
+		t.Fatal("clavier de bureau incomplet")
+	}
+	m.press(107)
+	if m.pressed[118] {
+		t.Fatal("sur un clavier de bureau, Impr n'est pas Inser")
+	}
+}
+
+func TestHasKeyBits(t *testing.T) {
+	// clavier : Q (16) et Espace (57) dans le mot le plus bas
+	if !hasKeyBits("1000000000007 ff9f207ac14057ff febeffdfffefffff fffffffffffffffe", 16, 57) {
+		t.Fatal("clavier non reconnu")
+	}
+	if hasKeyBits("1f0000 0 0 0 0", 16, 57) {
+		t.Fatal("souris prise pour un clavier")
 	}
 }
 

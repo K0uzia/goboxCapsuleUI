@@ -490,11 +490,11 @@ func TestPulseDots(t *testing.T) {
 	a.Settings().SetTheme(newTheme(true))
 	s := newSession()
 	f := newFichePanel(s)
-	if !f.techDot.root.Visible() {
-		t.Fatal("puce du technicien visible au départ")
+	if !f.techRing.Visible() || !f.techRing.running {
+		t.Fatal("cadre du technicien visible et animé au départ")
 	}
 	for i, r := range f.reqs {
-		if r.empty() && (!r.dot.root.Visible() || r.ring.Hidden) {
+		if r.empty() && (!r.frame.Visible() || !r.frame.running) {
 			t.Fatalf("champ %d vide non signalé", i)
 		}
 	}
@@ -503,13 +503,13 @@ func TestPulseDots(t *testing.T) {
 	}
 	s.Form.Tech = "Alex"
 	f.showTechHint()
-	if f.techDot.root.Visible() {
-		t.Error("technicien rempli : puce masquée")
+	if f.techRing.Visible() || f.techRing.running {
+		t.Error("technicien rempli : cadre masqué et arrêté")
 	}
 	s.Form.Aspect, s.Form.CleanIn, s.Form.Paste, s.Form.Shred, s.Form.CMOS, s.Form.DVD = "Occasion", true, "non", "oui", "non", "absent"
 	f.updateRequired()
 	for i, r := range f.reqs {
-		if r.dot.root.Visible() || !r.ring.Hidden {
+		if r.frame.Visible() || r.frame.running {
 			t.Fatalf("champ %d rempli encore signalé", i)
 		}
 	}
