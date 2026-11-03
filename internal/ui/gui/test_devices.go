@@ -33,14 +33,11 @@ import (
 // nombre de prises n'est pas connu, seuls les branchements sont comptés
 type portTile struct {
 	root          fyne.CanvasObject
-	box           *fyne.Container
 	bg            *tRect
 	count, status *tText
 	bar           *thinBar
 	tested, total int
-	dead          int // prises sans réaction, comptées testées et défectueuses
-	deadText      *tText
-	deadUndo      *widget.Button
+	dead          int // prises signalées défectueuses, comptées testées
 }
 
 func newPortTile(ico, label string, total int) *portTile {
@@ -49,39 +46,24 @@ func newPortTile(ico, label string, total int) *portTile {
 	p.count.Mono = true
 	p.status = text("", 11, false, cMuted)
 	head := container.NewHBox(iconOf(ico, cMuted, 15), container.NewCenter(caption(label)))
-	p.box = container.NewVBox(head, p.count, p.bar.root, p.status)
-	p.root = container.NewStack(p.bg, container.New(&padLayout{h: 12, v: 10}, p.box))
+	p.root = container.NewStack(p.bg, container.New(&padLayout{h: 12, v: 10}, container.NewVBox(head, p.count, p.bar.root, p.status)))
 	p.set(0)
 	return p
-}
-
-// allowDead ajoute « Sans réaction » : la prise a été essayée et rien n'a été
-// détecté. onChange reçoit +1 ou -1.
-func (p *portTile) allowDead(onChange func(delta int)) {
-	p.deadText = text("", 11, true, cDanger)
-	p.deadUndo = iconButton(theme.ContentUndoIcon(), func() { onChange(-1) })
-	p.deadUndo.Hide()
-	p.deadText.Hide()
-	mark := secondaryButton("Sans réaction", buttonIcon("circle-xmark"), func() { onChange(1) })
-	p.box.Add(container.NewBorder(nil, nil, nil, p.deadUndo, mark))
-	p.box.Add(p.deadText)
 }
 
 // setDead détectés et prises sans réaction
 func (p *portTile) setDead(detected, dead int) {
 	p.dead = dead
 	p.set(detected + dead)
-	if p.deadText == nil {
-		return
+	if dead > 0 {
+		p.status.Text, p.status.Role = fmt.Sprintf("dont %d défectueuse(s)", dead), cDanger
+		p.status.Refresh()
 	}
-	p.deadText.SetText(fmt.Sprintf("%d sans réaction (défectueuse)", dead))
-	p.deadText.Hidden, p.deadUndo.Hidden = dead == 0, dead == 0
-	p.deadText.Refresh()
-	p.deadUndo.Refresh()
 }
 
 func (p *portTile) set(tested int) {
 	p.tested = tested
+	p.status.Role = cMuted
 	if p.total >= 0 {
 		p.total = max(p.total, tested) // une prise branchée existe, même non listée
 	}
@@ -243,24 +225,65 @@ func runPorts(t *testCtx) result {
 		tl := tiles[key]
 		if tl == nil {
 			tl = newPortTile(ico, key, total)
-			if ico == "usb" {
-				// une prise morte ne laisse aucune trace dans le système : le
-				// technicien la signale
-				tl.allowDead(func(delta int) {
-					usbDead[key] = max(0, usbDead[key]+delta)
-					if delta > 0 {
-						t.log("Prise %s sans réaction, signalée par le technicien", key)
-					}
-					update()
-				})
-			}
 			tiles[key] = tl
 			grid.Add(tl.root)
 		}
 		return tl
 	}
+	// Une prise morte ne laisse aucune trace dans le système : le technicien la
+	// signale, une ligne par type de prise
+	badRows := container.NewVBox()
+	badKinds := func() []string {
+		if usb.total < 0 {
+			return []string{"USB"}
+		}
+		var out []string
+		totals := usb.kindTotals()
+		for _, kind := range usbKindOrder {
+			if totals[kind] > 0 || usbCount(kind) > 0 {
+				out = append(out, kind)
+			}
+		}
+		return out
+	}
+	shownBad := ""
+	paintBad := func() {
+		state := fmt.Sprint(badKinds(), usbDead)
+		if state == shownBad {
+			return
+		}
+		shownBad = state
+		badRows.RemoveAll()
+		for _, kind := range badKinds() {
+			kind := kind
+			n := usbDead[kind]
+			right := container.NewHBox()
+			if n > 0 {
+				right.Add(container.NewCenter(text(fmt.Sprintf("%d signalée(s)", n), 12, true, cDanger)))
+				right.Add(iconButton(theme.ContentUndoIcon(), func() {
+					usbDead[kind] = max(0, usbDead[kind]-1)
+					t.log("Prise %s défectueuse retirée", kind)
+					update()
+				}))
+			}
+			right.Add(secondaryButton("Signaler une prise "+kind+" défectueuse", buttonIcon("circle-xmark"), func() {
+				usbDead[kind]++
+				t.log("Prise %s défectueuse, signalée par le technicien", kind)
+				update()
+			}))
+			badRows.Add(listRow(text(kind, 13, true, cText), right))
+		}
+		badRows.Refresh()
+	}
+	badBox := box(container.NewVBox(
+		container.NewHBox(iconOf("triangle-exclamation", cDanger, 14), container.NewCenter(caption("Prise USB défectueuse"))),
+		wrapLabel("Une clé branchée n'a rien donné ? Signalez la prise : elle est comptée testée et défectueuse sur la fiche."),
+		badRows,
+	), cLine, cSurface)
+
 	update = func() {
 		t.ui(func() {
+			paintBad()
 			if usb.total < 0 {
 				tile("USB", "usb", -1).setDead(len(usbTested), usbDead["USB"])
 			} else {
@@ -283,8 +306,9 @@ func runPorts(t *testCtx) result {
 	}
 	t.panel(func() fyne.CanvasObject {
 		content := container.NewVBox(
-			instruction("plug", "Branchez une clé USB sur chaque port, puis un écran sur chaque sortie vidéo. Un port déjà occupé compte comme testé. Une prise où la clé n'est pas détectée : « Sans réaction » sous son type."),
+			instruction("plug", "Branchez une clé USB sur chaque port, puis un écran sur chaque sortie vidéo. Un port déjà occupé compte comme testé."),
 			grid,
+			badBox,
 		)
 		if screen != "" {
 			content.Add(listRow(container.NewHBox(iconOf("computer", cMuted, 14), text(internalScreen, 13, false, cText)), text(screen, 13, true, cText)))

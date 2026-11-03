@@ -5,6 +5,19 @@ package gui
 /*
 #cgo LDFLAGS: -lX11
 #include <X11/Xlib.h>
+#include <X11/XKBlib.h>
+#include <stdlib.h>
+
+// Symbole produit par une touche dans la disposition active ("a", "q"…), NULL
+// sans serveur X
+static const char *key_symbol(int code) {
+	Display *d = XOpenDisplay(NULL);
+	if (d == NULL) return NULL;
+	KeySym s = XkbKeycodeToKeysym(d, (KeyCode)code, 0, 0);
+	const char *name = XKeysymToString(s);
+	XCloseDisplay(d);
+	return name;
+}
 
 static int grab_open(Display **out) {
 	Display *d = XOpenDisplay(NULL);
@@ -36,6 +49,16 @@ static void grab_close(Display *d) {
 import "C"
 
 import "time"
+
+// keySymbol symbole de la touche code dans la disposition active du serveur X,
+// "" s'il n'est pas lisible
+func keySymbol(code int) string {
+	name := C.key_symbol(C.int(code))
+	if name == nil {
+		return ""
+	}
+	return C.GoString(name)
+}
 
 // grabKeyboard capture tout le clavier auprès du serveur X : la touche Windows,
 // Alt+Tab et les raccourcis du bureau (dont le menu de Cinnamon, que gsettings

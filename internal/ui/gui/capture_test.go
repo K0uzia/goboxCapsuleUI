@@ -5,12 +5,14 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/widget"
 )
 
 // Captures de la fenêtre principale, rendues en mémoire (aucune fenêtre
@@ -113,6 +115,28 @@ func TestCaptures(t *testing.T) {
 			time.Sleep(200 * time.Millisecond)
 		})
 	}
+	simulated = true
+	capture(t, dir, "sombre-test-ports-defectueux", big, true, func(tools *toolsPanel, s *session, w fyne.Window) {
+		test.Tap(tools.buttons["ports"])
+		time.Sleep(400 * time.Millisecond)
+		var tapNamed func(o fyne.CanvasObject) bool
+		tapNamed = func(o fyne.CanvasObject) bool {
+			if b, ok := o.(*widget.Button); ok && strings.HasPrefix(b.Text, "Signaler une prise USB 3") {
+				test.Tap(b)
+				return true
+			}
+			if c, ok := o.(*fyne.Container); ok {
+				for _, child := range c.Objects {
+					if tapNamed(child) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		fyne.DoAndWait(func() { tapNamed(tools.view.panel) })
+		time.Sleep(700 * time.Millisecond)
+	})
 	simulated = false
 	capture(t, dir, "sombre-test-maj-attente", big, true, func(tools *toolsPanel, s *session, w fyne.Window) {
 		var def *testDef

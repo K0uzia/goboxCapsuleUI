@@ -498,7 +498,7 @@ func TestPulseDots(t *testing.T) {
 			t.Fatalf("champ %d vide non signalé", i)
 		}
 	}
-	if f.todo.Hidden || !strings.Contains(f.todo.Text, "aspect") || !strings.Contains(f.todo.Text, "shred") {
+	if f.todo.Hidden || !strings.Contains(f.todo.Text, "aspect") || strings.Contains(f.todo.Text, "shred") {
 		t.Fatalf("liste à remplir : %q", f.todo.Text)
 	}
 	s.Form.Tech = "Alex"
@@ -506,7 +506,10 @@ func TestPulseDots(t *testing.T) {
 	if f.techRing.Visible() || f.techRing.running {
 		t.Error("technicien rempli : cadre masqué et arrêté")
 	}
-	s.Form.Aspect, s.Form.CleanIn, s.Form.Paste, s.Form.Shred, s.Form.CMOS, s.Form.DVD = "Occasion", true, "non", "oui", "non", "absent"
+	if s.Form.Paste != "non" || s.Form.Shred != "non" || s.Form.CMOS != "non" || s.Form.DVD != "non" {
+		t.Fatal("maintenance : « non » par défaut")
+	}
+	s.Form.Aspect, s.Form.CleanIn = "Occasion", true
 	f.updateRequired()
 	for i, r := range f.reqs {
 		if r.frame.Visible() || r.frame.running {

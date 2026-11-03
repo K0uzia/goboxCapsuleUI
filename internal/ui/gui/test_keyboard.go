@@ -32,18 +32,16 @@ const (
 
 // keyDef touche physique identifiée par son code X11 (indépendant de la
 // disposition), avec ses libellés AZERTY / QWERTY et sa place sur le plan du
-// clavier, en largeurs de touche. Alt : codes de la même touche avec Fn (sur un
-// portable, Impr est souvent Fn + Inser).
+// clavier, en largeurs de touche. Une fonction obtenue avec Fn (Impr sur Inser,
+// volume sur F2…) envoie son propre code : elle a sa propre touche sur le plan.
 type keyDef struct {
 	Code       int
 	Azerty     string
 	Qwerty     string
-	Sub        string // second libellé (fonction avec Fn)
-	Alt        []int
 	X, Y, W, H float32
 	Sec        string
 	Group      string // un appui sur une touche absente fait apparaître tout son groupe
-	Off        bool   // absente au départ
+	Off        bool   // absente tant qu'on n'appuie pas dessus
 }
 
 // kd touche d'une rangée : code, libellés, largeur
@@ -66,12 +64,6 @@ func row(sec string, y, x float32, keys ...kd) []keyDef {
 	return out
 }
 
-// Formats de clavier proposés au technicien
-const (
-	formatDesktop = "Clavier de bureau"
-	formatLaptop  = "Clavier de portable"
-)
-
 // Touches multimédia (codes X11) : seulement si on appuie dessus
 var mediaKeys = []struct {
 	code  int
@@ -79,12 +71,13 @@ var mediaKeys = []struct {
 	group string
 }{
 	{121, "Muet", "audio"}, {122, "Vol−", "audio"}, {123, "Vol+", "audio"},
-	{172, "Lect.", ""}, {232, "Lum−", "lum"}, {233, "Lum+", "lum"},
+	{172, "Lect", ""}, {232, "Lum−", "lum"}, {233, "Lum+", "lum"},
 }
 
-// keyboardPlan plan ISO 105 touches, adapté à un portable : Impr, Défil et Pause
-// partagent les touches Inser, Début et Pg↑ (avec Fn), le pavé et les touches
-// de navigation rares partent grisés. Codes X11 = codes evdev + 8.
+// keyboardPlan plan ISO 105 touches et touches multimédia. Le système ne dit pas
+// quelles touches sont gravées : pavé numérique et multimédia partent absents et
+// apparaissent au premier appui ; sur un portable, les touches de navigation
+// rares aussi. Codes X11 = codes evdev + 8.
 func keyboardPlan(laptop bool) []keyDef {
 	var ks []keyDef
 	add := func(k ...keyDef) { ks = append(ks, k...) }
@@ -98,22 +91,8 @@ func keyboardPlan(laptop bool) []keyDef {
 	add(row(secMain, 3.25, 0, same(66, "⇪", 1.5), key(38, "Q", "A", 1), same(39, "S", 1), same(40, "D", 1), same(41, "F", 1), same(42, "G", 1), same(43, "H", 1), same(44, "J", 1), same(45, "K", 1), same(46, "L", 1), key(47, "M", ";", 1), key(48, "ù", "'", 1), key(51, "*", "\\", 1))...)
 	add(row(secMain, 4.25, 0, same(50, "⇧", 1.25), same(94, "<", 1), key(52, "W", "Z", 1), same(53, "X", 1), same(54, "C", 1), same(55, "V", 1), same(56, "B", 1), same(57, "N", 1), key(58, ",", "M", 1), key(59, ";", ",", 1), key(60, ":", ".", 1), key(61, "!", "/", 1), same(62, "⇧", 2.75))...)
 	add(row(secMain, 5.25, 0, same(37, "Ctrl", 1.5), same(133, "⊞", 1.25), same(64, "Alt", 1.25), key(65, "Espace", "Space", 6), same(108, "AltGr", 1.25), same(135, "Menu", 1.25), same(105, "Ctrl", 2.5))...)
-
-	nav := row(secNav, 1.25, 15.5, same(118, "Inser", 1), same(110, "Début", 1), same(112, "Pg↑", 1))
-	mediaX := float32(19)
-	if laptop {
-		// Fn + Inser = Impr, Fn + Début = Défil, Fn + Pg↑ = Pause : une seule touche
-		for i, alt := range []struct {
-			code int
-			sub  string
-		}{{107, "Impr"}, {78, "Défil"}, {127, "Pause"}} {
-			nav[i].Alt, nav[i].Sub = []int{alt.code}, alt.sub
-		}
-		mediaX = 15.5
-	} else {
-		add(row(secNav, 0, 15.5, same(107, "Impr", 1), same(78, "Défil", 1), same(127, "Pause", 1))...)
-	}
-	add(nav...)
+	add(row(secNav, 0, 15.5, same(107, "Impr", 1), same(78, "Défil", 1), same(127, "Pause", 1))...)
+	add(row(secNav, 1.25, 15.5, same(118, "Inser", 1), same(110, "Début", 1), same(112, "Pg↑", 1))...)
 	add(row(secNav, 2.25, 15.5, same(119, "Suppr", 1), same(115, "Fin", 1), same(117, "Pg↓", 1))...)
 	add(row(secArrows, 4.25, 16.5, same(111, "↑", 1))...)
 	add(row(secArrows, 5.25, 15.5, same(113, "←", 1), same(116, "↓", 1), same(114, "→", 1))...)
@@ -124,20 +103,24 @@ func keyboardPlan(laptop bool) []keyDef {
 	add(row(secPad, 4.25, 19, same(87, "1", 1), same(88, "2", 1), same(89, "3", 1))...)
 	add(keyDef{Code: 104, Azerty: "⏎", Qwerty: "⏎", X: 22, Y: 4.25, W: 1, H: 2, Sec: secPad})
 	add(row(secPad, 5.25, 19, same(90, "0", 2), same(91, ".", 1))...)
-	n := 0
+	// son et lecture au-dessus du pavé ; luminosité (portable) sous la navigation
+	x := float32(19)
 	for _, m := range mediaKeys {
-		if !laptop && m.group == "lum" {
-			continue // la luminosité ne se règle pas depuis un clavier de bureau
+		k := keyDef{Code: m.code, Azerty: m.label, Qwerty: m.label, X: x, Y: 0, W: 1, H: 1, Sec: secMedia, Group: m.group, Off: true}
+		if m.group == "lum" {
+			if !laptop {
+				continue // la luminosité ne se règle pas depuis un clavier de bureau
+			}
+			k.X, k.Y = 16+float32(m.code-232), 3.25
+		} else {
+			x++
 		}
-		add(keyDef{Code: m.code, Azerty: m.label, Qwerty: m.label, X: mediaX + float32(n), Y: 0, W: 1, H: 1, Sec: secMedia, Group: m.group, Off: true})
-		n++
+		add(k)
 	}
-
 	for i := range ks {
 		switch {
 		case ks[i].Sec == secPad:
-			ks[i].Group = "pad"
-			ks[i].Off = laptop
+			ks[i].Group, ks[i].Off = "pad", true
 		case laptop && ks[i].Sec == secNav && ks[i].Code != 119:
 			ks[i].Off = true // seule Suppr est presque toujours sur un portable
 		case laptop && ks[i].Code == 135:
@@ -217,33 +200,27 @@ type keyboardModel struct {
 	plan    []keyDef
 	present map[int]bool
 	pressed map[int]bool
-	byCode  map[int]int // code reçu (touche ou Fn) → touche du plan
 	group   map[int]string
 	sec     map[int]string
 }
 
 func newKeyboardModel(plan []keyDef) *keyboardModel {
-	m := &keyboardModel{plan: plan, present: map[int]bool{}, pressed: map[int]bool{}, byCode: map[int]int{}, group: map[int]string{}, sec: map[int]string{}}
+	m := &keyboardModel{plan: plan, present: map[int]bool{}, pressed: map[int]bool{}, group: map[int]string{}, sec: map[int]string{}}
 	for _, k := range plan {
 		m.present[k.Code] = !k.Off
 		m.sec[k.Code] = k.Sec
 		m.group[k.Code] = k.Group
-		m.byCode[k.Code] = k.Code
-		for _, a := range k.Alt {
-			m.byCode[a] = k.Code
-		}
 	}
 	return m
 }
 
 // known vrai si le code correspond à une touche du plan
-func (m *keyboardModel) known(code int) bool { _, ok := m.byCode[code]; return ok }
+func (m *keyboardModel) known(code int) bool { _, ok := m.sec[code]; return ok }
 
 // press enregistre un appui ; rend les touches dont l'état a changé. Une touche
 // grisée appuyée existe donc, et fait apparaître son groupe (pavé, son).
-func (m *keyboardModel) press(code int) []int {
-	k, ok := m.byCode[code]
-	if !ok || m.pressed[k] {
+func (m *keyboardModel) press(k int) []int {
+	if !m.known(k) || m.pressed[k] {
 		return nil
 	}
 	changed := []int{k}
@@ -328,7 +305,6 @@ type keyCapW struct {
 	def   keyDef
 	bg    *tRect
 	label *tText
-	sub   *tText
 	onTap func()
 }
 
@@ -336,15 +312,12 @@ func newKeyCap(d keyDef, onTap func()) *keyCapW {
 	c := &keyCapW{def: d, bg: newRect(cSurface2, cLineStrong, 5), onTap: onTap}
 	c.label = text("", 11, true, cText)
 	c.label.Alignment = fyne.TextAlignCenter
-	c.sub = text(d.Sub, 7.5, false, cMuted)
-	c.sub.Alignment = fyne.TextAlignCenter
-	c.sub.Hidden = d.Sub == ""
 	c.ExtendBaseWidget(c)
 	return c
 }
 
 func (c *keyCapW) CreateRenderer() fyne.WidgetRenderer {
-	return widget.NewSimpleRenderer(container.NewStack(c.bg, container.NewCenter(container.NewVBox(c.label, c.sub))))
+	return widget.NewSimpleRenderer(container.NewStack(c.bg, container.NewCenter(c.label)))
 }
 func (c *keyCapW) Tapped(*fyne.PointEvent) { c.onTap() }
 func (c *keyCapW) Cursor() desktop.Cursor  { return desktop.PointerCursor }
@@ -363,16 +336,15 @@ func (c *keyCapW) paint(present, pressed, azerty bool) {
 	switch {
 	case pressed:
 		c.bg.setRoles(cSuccess, cSuccess)
-		c.label.Role, c.sub.Role = cAccentText, cAccentText
+		c.label.Role = cAccentText
 	case present:
 		c.bg.setRoles(cSurface2, cLineStrong)
-		c.label.Role, c.sub.Role = cText, cMuted
+		c.label.Role = cText
 	default:
 		c.bg.setRoles("", cLine)
-		c.label.Role, c.sub.Role = cLine, cLine
+		c.label.Role = cLine
 	}
 	c.label.Refresh()
-	c.sub.Refresh()
 }
 
 // keyboardLayout place chaque touche sur le plan, mis à l'échelle de la largeur
@@ -399,24 +371,21 @@ func (l *keyboardLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
 
 func runKeyboard(t *testCtx) result {
 	t.progress(-1)
-	azerty := detectAzerty()
 	laptop := isLaptop("/sys/class/dmi/id", sysPower)
+	azerty, layoutKnown := keyboardLayoutAzerty()
 	if simulated {
-		laptop = true
+		laptop, azerty, layoutKnown = true, true, true
 	}
-	t.log("Disposition détectée : %s", map[bool]string{true: "AZERTY (fr)", false: "QWERTY"}[azerty])
+	t.log("Machine : %s", map[bool]string{true: "portable", false: "poste fixe"}[laptop])
+	t.log("Disposition : %s", map[bool]string{true: "AZERTY", false: "QWERTY"}[azerty])
 	for _, k := range inputKeyboards(sysInput) {
-		t.log("Clavier vu par le système : %s (%s)", k.Name, orUnknown(k.Phys, "interne"))
+		t.log("Clavier vu par le système : %s", k.Name)
 	}
 
 	m := newKeyboardModel(keyboardPlan(laptop))
-	var raw []int             // codes reçus, rejoués si le format change
 	unknown := map[int]bool{} // codes hors du plan (touches spéciales du constructeur)
 	caps := map[int]*keyCapW{}
-	planBox := container.NewStack()
-	var counter, kindText *tText
-	var padCheck *widget.Check
-	var format *segmented
+	var counter, kindText, padText *tText
 	var trap *keyTrap
 
 	repaint := func(codes ...int) {
@@ -427,10 +396,16 @@ func runKeyboard(t *testCtx) result {
 		}
 		done, total := m.counts()
 		counter.SetText(fmt.Sprintf("%d / %d touches", done, total))
-		kindText.SetText(strings.ToUpper(m.kind()[:1]) + m.kind()[1:])
-		if padCheck != nil && padCheck.Checked != m.hasSection(secPad) {
-			padCheck.SetChecked(m.hasSection(secPad))
+		kindText.SetText(fmt.Sprintf("%s · %s · %s", map[bool]string{true: "Portable", false: "Poste fixe"}[laptop],
+			map[bool]string{true: "AZERTY", false: "QWERTY"}[azerty], m.kind()))
+		if m.hasSection(secPad) {
+			padText.SetText("Pavé numérique détecté")
+			padText.Role = cSuccess
+		} else {
+			padText.SetText("Pavé numérique : appuyez sur une de ses touches s'il y en a un")
+			padText.Role = cMuted
 		}
+		padText.Refresh()
 	}
 	all := func() []int {
 		codes := make([]int, 0, len(m.plan))
@@ -439,9 +414,27 @@ func runKeyboard(t *testCtx) result {
 		}
 		return codes
 	}
-	// build dessine le plan du modèle en cours
-	build := func() {
-		caps = map[int]*keyCapW{}
+	// press touche reçue (fenêtre, capture X11 ou noyau) ; name : lettre produite,
+	// qui corrige la disposition si elle n'a pas pu être lue
+	press := func(code int, name string) {
+		if !layoutKnown && code == 24 && name != "" {
+			layoutKnown, azerty = true, strings.EqualFold(name, "A")
+			repaint(all()...)
+		}
+		if !m.known(code) {
+			if !unknown[code] {
+				unknown[code] = true
+				t.log("Touche spéciale du constructeur détectée (code %d)", code)
+			}
+			return
+		}
+		repaint(m.press(code)...)
+	}
+
+	t.panel(func() fyne.CanvasObject {
+		counter = text("", 13, true, cText)
+		kindText = text("", 12, false, cMuted)
+		padText = text("", 12, true, cMuted)
 		objs := make([]fyne.CanvasObject, len(m.plan))
 		for i, d := range m.plan {
 			c := newKeyCap(d, func() {
@@ -452,53 +445,23 @@ func runKeyboard(t *testCtx) result {
 			caps[d.Code] = c
 			objs[i] = c
 		}
-		planBox.Objects = []fyne.CanvasObject{container.New(&keyboardLayout{keys: m.plan}, objs...)}
-		planBox.Refresh()
+		plan := container.New(&keyboardLayout{keys: m.plan}, objs...)
 		repaint(all()...)
-	}
-	press := func(code int) {
-		if !m.known(code) {
-			if !unknown[code] {
-				unknown[code] = true
-				t.log("Touche spéciale du constructeur détectée (code %d)", code)
-			}
-			return
-		}
-		raw = append(raw, code)
-		repaint(m.press(code)...)
-	}
-	setLaptop := func(on bool) {
-		laptop = on
-		m = newKeyboardModel(keyboardPlan(on))
-		for _, code := range raw {
-			m.press(code)
-		}
-		build()
-	}
-
-	t.panel(func() fyne.CanvasObject {
-		counter = text("", 13, true, cText)
-		kindText = text("", 12, false, cMuted)
-		padCheck = widget.NewCheck("Pavé numérique", func(on bool) {
-			if on != m.hasSection(secPad) {
-				repaint(m.setSection(secPad, on)...)
-			}
-		})
-		selected := map[bool]string{true: formatLaptop, false: formatDesktop}[laptop]
-		format = newSegmented([]string{formatDesktop, formatLaptop}, selected, 150, func(v string) {
-			if (v == formatLaptop) != laptop {
-				setLaptop(v == formatLaptop)
-			}
-		})
-		build()
-		toggle := secondaryButton("AZERTY / QWERTY", nil, func() { azerty = !azerty; repaint(all()...) })
-		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { press(ev.Physical.ScanCode) })
-		head := container.NewBorder(nil, nil, container.NewHBox(counter, container.NewCenter(kindText)), container.NewHBox(padCheck, toggle))
-		hint := mutedNote("Touche grisée : absente de ce clavier, elle ne compte pas ; un appui la fait apparaître, un clic la retire ou la remet. " +
-			"Portable : Impr, Défil et Pause se testent avec Fn sur Inser, Début et Page haut ; touches F qui règlent le son ou la luminosité : un appui direct teste la fonction, Fn + la touche teste F1 à F12.")
-		return container.NewVBox(format.root, head, planBox, hint, trap)
+		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { press(ev.Physical.ScanCode, string(ev.Name)) })
+		head := container.NewVBox(container.NewHBox(counter, container.NewCenter(kindText)), padText)
+		hint := mutedNote("Appuyez sur chaque touche, Fn compris : une fonction obtenue avec Fn (Impr, volume, luminosité) s'allume à part. " +
+			"Pavé numérique et touches multimédia apparaissent au premier appui. Touche grisée : absente, elle ne compte pas ; un clic la retire ou la remet.")
+		return container.NewVBox(head, plan, hint, trap)
 	})
-	t.log("Format proposé : %s", map[bool]string{true: formatLaptop, false: formatDesktop}[laptop])
+
+	// Lecture dans le noyau : touches de son d'un clavier USB, que le bureau garde
+	if !simulated && manageSuperKey {
+		stopEvdev, names := readEvdevKeys(sysInput, func(code int) { fyne.Do(func() { press(code, "") }) })
+		defer stopEvdev()
+		if len(names) > 0 {
+			t.log("Touches lues directement sur : %s", strings.Join(names, ", "))
+		}
+	}
 
 	// Le piège garde le focus pour que Tab ne le déplace pas sur un bouton, et
 	// reçoit les touches : Fyne n'appelle SetOnKeyDown du canvas que si aucun
@@ -519,7 +482,7 @@ func runKeyboard(t *testCtx) result {
 	// Le clavier entier est capturé : les raccourcis du bureau (menu de Cinnamon)
 	// ne sortent plus du test
 	if !simulated && manageSuperKey {
-		release, ok := grabKeyboard(func(code int) { fyne.Do(func() { press(code) }) })
+		release, ok := grabKeyboard(func(code int) { fyne.Do(func() { press(code, "") }) })
 		defer release()
 		if ok {
 			t.log("Clavier capturé pendant le test : terminez à la souris")
@@ -544,7 +507,8 @@ func runKeyboard(t *testCtx) result {
 			}
 		}
 	})
-	layout := map[bool]string{true: "AZERTY", false: "QWERTY"}[azerty]
+	var layout string
+	fyne.DoAndWait(func() { layout = map[bool]string{true: "AZERTY", false: "QWERTY"}[azerty] })
 	data := map[string]string{"kind": kind, "layout": layout}
 	if len(missing) > 0 {
 		t.log("Touches non détectées : %s", strings.Join(missing, " "))
@@ -556,6 +520,19 @@ func runKeyboard(t *testCtx) result {
 		return result{Status: statusWarn, Detail: fmt.Sprintf("%d / %d touches · non détectées : %s", n, total, strings.Join(missing, " ")), Data: data}
 	}
 	return result{Status: statusFail, Detail: fmt.Sprintf("%d / %d touches détectées · %s", n, total, kind), Data: data}
+}
+
+// keyboardLayoutAzerty disposition active : la lettre que produit la touche à
+// droite de Tab, lue au serveur X ; known faux si elle n'a pas pu être lue (la
+// première frappe sur cette touche tranche alors)
+func keyboardLayoutAzerty() (azerty, known bool) {
+	switch strings.ToLower(keySymbol(24)) {
+	case "a":
+		return true, true
+	case "q":
+		return false, true
+	}
+	return detectAzerty(), false
 }
 
 // detectAzerty lit la disposition système : Debian / Mint
