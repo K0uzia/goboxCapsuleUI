@@ -416,6 +416,14 @@ func runKeyboard(t *testCtx) result {
 	}
 	// press touche reçue (fenêtre, capture X11 ou noyau) ; name : lettre produite,
 	// qui corrige la disposition si elle n'a pas pu être lue
+	sources := map[string]bool{} // voies par lesquelles une touche est déjà arrivée
+	pressFrom := func(source string, code int, name string, press func(int, string)) {
+		if !sources[source] {
+			sources[source] = true
+			t.log("Première touche reçue par %s (code %d)", source, code)
+		}
+		press(code, name)
+	}
 	press := func(code int, name string) {
 		if !layoutKnown && code == 24 && name != "" {
 			layoutKnown, azerty = true, strings.EqualFold(name, "A")
@@ -447,7 +455,7 @@ func runKeyboard(t *testCtx) result {
 		}
 		plan := container.New(&keyboardLayout{keys: m.plan}, objs...)
 		repaint(all()...)
-		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { press(ev.Physical.ScanCode, string(ev.Name)) })
+		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { pressFrom("la fenêtre", ev.Physical.ScanCode, string(ev.Name), press) })
 		head := container.NewVBox(container.NewHBox(counter, container.NewCenter(kindText)), padText)
 		hint := mutedNote("Appuyez sur chaque touche, Fn compris : une fonction obtenue avec Fn (Impr, volume, luminosité) s'allume à part. " +
 			"Pavé numérique et touches multimédia apparaissent au premier appui. Touche grisée : absente, elle ne compte pas ; un clic la retire ou la remet.")
@@ -456,10 +464,12 @@ func runKeyboard(t *testCtx) result {
 
 	// Lecture dans le noyau : touches de son d'un clavier USB, que le bureau garde
 	if !simulated && manageSuperKey {
-		stopEvdev, names := readEvdevKeys(sysInput, func(code int) { fyne.Do(func() { press(code, "") }) })
+		stopEvdev, names := readEvdevKeys(sysInput, func(code int) { fyne.Do(func() { pressFrom("le noyau", code, "", press) }) })
 		defer stopEvdev()
 		if len(names) > 0 {
 			t.log("Touches lues directement sur : %s", strings.Join(names, ", "))
+		} else {
+			t.log("Lecture directe des claviers impossible (droits sur /dev/input ?)")
 		}
 	}
 
@@ -482,7 +492,7 @@ func runKeyboard(t *testCtx) result {
 	// Le clavier entier est capturé : les raccourcis du bureau (menu de Cinnamon)
 	// ne sortent plus du test
 	if !simulated && manageSuperKey {
-		release, ok := grabKeyboard(func(code int) { fyne.Do(func() { press(code, "") }) })
+		release, ok := grabKeyboard(func(code int) { fyne.Do(func() { pressFrom("la capture X11", code, "", press) }) })
 		defer release()
 		if ok {
 			t.log("Clavier capturé pendant le test : terminez à la souris")
