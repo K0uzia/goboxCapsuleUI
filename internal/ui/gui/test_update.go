@@ -68,6 +68,7 @@ func chooseSystem(t *testCtx, systems []diskSystem) (diskSystem, bool) {
 		return systems[0], true
 	}
 	picked := make(chan diskSystem, 1)
+	t.waiting()
 	t.panel(func() fyne.CanvasObject {
 		list := container.NewVBox(instruction("arrows-rotate", "Plusieurs systèmes sur le disque : lequel mettre à jour ?"))
 		for _, sys := range systems {
@@ -77,6 +78,7 @@ func chooseSystem(t *testCtx, systems []diskSystem) (diskSystem, bool) {
 	})
 	select {
 	case s := <-picked:
+		t.progress(-1)
 		return s, true
 	case <-t.ctx.Done():
 		return diskSystem{}, false
@@ -131,15 +133,25 @@ func updateDiskSystem(t *testCtx) result {
 // applyUpdate demande confirmation puis lance la mise à jour ; disk nil : le système
 // en cours d'exécution
 func applyUpdate(t *testCtx, name, manager string, disk *diskSystem) result {
+	// Rien ne démarre sans le technicien : la barre reste arrêtée et la consigne
+	// le dit, sinon il attend devant un écran qui semble travailler
+	t.waiting()
+	t.log("En attente : la mise à jour ne démarre qu'après « Lancer la mise à jour »")
 	t.panel(func() fyne.CanvasObject {
-		return instruction("arrows-rotate", "Met à jour "+name+" et ses paquets ("+manager+"). La modification est définitive. Ne pas éteindre le PC pendant l'opération.")
+		return container.NewVBox(
+			instruction("arrow-pointer", "En attente de votre accord : rien n'est lancé. Cliquez sur « Lancer la mise à jour » ci-dessous pour démarrer."),
+			mutedNote("Met à jour "+name+" et ses paquets ("+manager+"). La modification est définitive. Ne pas éteindre le PC pendant l'opération."),
+		)
 	})
-	if t.choose("Lancer la mise à jour ?", choice{"Lancer", statusOK}, choice{"Ne pas faire", statusNA}) != statusOK {
+	if t.choose("Démarrer la mise à jour ?", choice{"Lancer la mise à jour", statusOK}, choice{"Ne pas faire", statusNA}) != statusOK {
 		if t.cancelled() {
 			return result{}
 		}
 		return result{Status: statusNA, Detail: "Non réalisée"}
 	}
+	t.progress(-1)
+	t.setPanelEmpty()
+	t.log("Mise à jour lancée")
 	t.answered = false // la suite est longue : le résultat reste affiché
 	t.lockCancel()     // interrompre un paquet en cours d'installation casserait le système
 

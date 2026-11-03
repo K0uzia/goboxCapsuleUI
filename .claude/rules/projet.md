@@ -3,7 +3,7 @@
 - depot: goboxCapsuleUI
 - type: à confirmer (proposé : logiciel-bureau, ajouté au kit après l'étape 1)
 - statut: validé le 2026-10-28
-- mise à jour: 2026-10-30
+- mise à jour: 2026-11-03
 
 Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `web-*` ne s'appliquent que pour leurs principes d'interface (voir « Modèle à respecter »). Ce fichier ne contient que ce qui est propre au projet.
 
@@ -78,6 +78,12 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-10-30 | Ping dans le test réseau (1.1.1.1, latence et pertes), sans bip : le PC signale déjà les branchements | confirmé par l'humain |
 | 2026-10-30 | gobox fonctionne sur l'image live et directement sur le PC ; la MAJ est définitive dans les deux cas : depuis l'image live, elle vise le système installé sur le disque (montage et chroot), après confirmation, sans annulation une fois lancée | demande de l'humain : pas de mise à jour temporaire |
 | 2026-10-30 | Diagnostic matériel à copier depuis À propos, sans commande à taper | la commande `sudo build/gobox --verifier-outils` n'a pas marché chez l'humain |
+| 2026-11-03 | Test clavier : plan complet (Échap, F1 à F12, navigation, flèches, pavé numérique). Portable reconnu par le type de châssis du BIOS : pavé et touches de navigation rares grisés au départ, un appui les fait apparaître, un clic retire une touche absente | demande de l'humain : les claviers n'ont pas tous les mêmes touches |
+| 2026-11-03 | Nombre de prises USB lu seulement dans l'ACPI ; la liste du BIOS ne sert plus de compte. Un port non déclaré devient une prise dès qu'on y branche quelque chose | le BIOS liste plus de prises qu'il n'y en a |
+| 2026-11-03 | Prise USB morte : bouton « Sans réaction » sous son type, comptée testée et défectueuse (complète la détection automatique du 2026-10-30) | une prise sans aucune réaction ne laisse pas de trace dans le système |
+| 2026-11-03 | Fiche : rien n'est rempli d'avance (aspect, pâte, shred, pile, DVD) ; chaque champ vide est entouré et pulse, la liste « À remplir » reste dans l'en-tête, PRINT la rappelle. DVD « absent » seulement si aucun lecteur n'est détecté | demande de l'humain : les informations à remplir n'attirent pas l'œil |
+| 2026-11-03 | Écran de résultat : « Valider ce résultat » à la place de « Retour au menu » | les techniciens cliquaient sur « Retour au menu » en croyant ne pas valider |
+| 2026-11-03 | MAJ : barre de progression arrêtée et consigne « En attente de votre accord » jusqu'au clic sur « Lancer la mise à jour » | le technicien attendait en croyant la mise à jour lancée |
 | 2026-10-27 | Tracebay-Autonome (tout sur un poste, système de licence) : source principale pour la logique ; Tracebay (serveur séparé sur le réseau) : source pour le fonctionnement en réseau | réponse d'interview |
 
 ## Modèle à respecter
@@ -149,4 +155,8 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-10-30 | Boîte à outils ni lue ni alimentée, et son absence jamais signalée | dossier absent au premier passage, non signalé ; rule `boite-a-outils` non appliquée ensuite | lecture et alimentation obligatoires (« Règles propres au projet ») |
 | 2026-10-30 | Caméra restée ouverte après son test | SIGKILL envoyé à sudo, qui ne le relaie pas | SIGTERM au groupe (`stopProcess`), test `TestStopProcessStopsChildren` |
 | 2026-10-30 | Mode d'emploi non tenu à jour, validations redemandées | règle du kit suivie à la lettre | mise à jour autonome (« Règles propres au projet ») |
+| 2026-11-03 | Santé batterie toujours à 0 % et alerte « trop basse » | capacités lues seulement en énergie (energy_*), alors que beaucoup de batteries les donnent en charge (charge_*) ; santé inconnue affichée comme 0 | lecture des deux unités et santé « non communiquée » plutôt que 0 (tests `TestReadBatteryChargeOnly`, `TestEvaluateUnknownHealth`) |
+| 2026-11-03 | Clé USB comptée comme disque dur dans la fiche | deux listes de disques, une seule filtrait l'USB | une seule fonction `probe.IsInternalDisk` (test `TestIsInternalDisk`) |
+| 2026-11-03 | Deux caméras pour une seule | chaque nœud /dev/video compté (image, métadonnées, infrarouge) | caméras regroupées par appareil (test `TestCamerasGroupNodes`) |
+| 2026-11-03 | Fiche à « 0 testé, 0 défectueux » après un port USB essayé | prise morte invisible pour le système, et clé sur un port non déclaré ignorée | « Sans réaction » et adoption du port au branchement (test `TestUSBAdoptUnlistedPort`) |
 | 2026-10-28 | Défilement de la fiche bloqué quand le pointeur passe sur un champ de saisie (signalé par l'humain) | défilement interne des champs Fyne qui garde la molette ; aucun test de défilement | couche de renvoi de la molette et test automatique (« Règles propres au projet ») |

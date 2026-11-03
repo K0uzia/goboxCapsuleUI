@@ -91,7 +91,7 @@ func guide() fyne.CanvasObject {
 		badge := container.NewStack(newRect(cAccentSoft, "", 11), container.New(&padLayout{h: 7, v: 2}, num))
 		list.Add(container.NewHBox(badge, container.NewCenter(text(s, 13, false, cText))))
 	}
-	list.Add(text("Échap annule un test ou revient au menu.", 12, false, cMuted))
+	list.Add(text("Échap annule un test en cours. Entrée valide le résultat affiché.", 12, false, cMuted))
 	return box(list, cLine, cSurface)
 }
 
@@ -182,8 +182,8 @@ func (p *toolsPanel) close(save bool) {
 	}
 }
 
-// typedKey raccourcis : Échap annule le test ou revient au menu, Entrée revient
-// au menu une fois le résultat affiché.
+// typedKey raccourcis : Échap annule le test ou revient au menu, Entrée valide
+// le résultat affiché.
 // Inactifs pendant le test clavier, qui a besoin de toutes les touches.
 func (p *toolsPanel) typedKey(e *fyne.KeyEvent) {
 	if e.Name == fyne.KeyEscape && openPopup != nil {
@@ -201,7 +201,7 @@ func (p *toolsPanel) typedKey(e *fyne.KeyEvent) {
 		p.close(false)
 	case fyne.KeyReturn, fyne.KeyEnter:
 		if p.view.resultBox.Visible() {
-			p.close(false)
+			p.close(true)
 		}
 	}
 }
@@ -294,19 +294,21 @@ func newTestView(p *toolsPanel) *testView {
 		v.resultChoices = append(v.resultChoices, b)
 		choiceObjs = append(choiceObjs, b)
 	}
+	// Un seul bouton principal : valider ce résultat. « Retour au menu » laissait
+	// croire au technicien que le test n'était pas validé.
 	v.finished = container.NewHBox(layout.NewSpacer(),
 		secondaryButton("Relancer", theme.ViewRefreshIcon(), func() { p.launch(p.active) }),
-		primaryButton("Retour au menu", theme.NavigateBackIcon(), func() { p.close(false) }),
+		primaryButton("Valider ce résultat", theme.ConfirmIcon(), func() { p.close(true) }),
 	)
 	v.resultBox = container.NewVBox(
-		v.finished,
 		container.NewStack(v.resultBg, container.New(&padLayout{h: 14, v: 10}, container.NewVBox(
 			container.NewHBox(container.NewCenter(v.resultPill.root), v.resultHead),
 			v.resultDetail, v.resultMeta,
 		))),
 		v.resultAdvice,
-		caption("Inscrit dans la fiche, cliquer pour corriger"),
+		caption("Résultat différent ? Le choisir, il remplace celui du test :"),
 		verdictRow(choiceObjs),
+		v.finished,
 	)
 
 	v.running = container.NewHBox(layout.NewSpacer(),
@@ -440,6 +442,15 @@ func logSeverity(msg string) fyne.ThemeColorName {
 		}
 	}
 	return cAccent
+}
+
+// setWaiting rien ne tourne : le test attend le technicien (barre masquée, pour
+// qu'il ne croie pas l'opération lancée)
+func (v *testView) setWaiting() {
+	v.barInf.Stop()
+	v.barInf.Hide()
+	v.bar.root.Hide()
+	v.barPct.Hide()
 }
 
 func (v *testView) setProgress(f float64) {

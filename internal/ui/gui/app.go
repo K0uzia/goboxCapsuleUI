@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -102,15 +103,23 @@ func mainContent(s *session, w fyne.Window) (fyne.CanvasObject, *toolsPanel) {
 			fyne.Do(func() { showPrinted(w, path, err) })
 		}()
 	}
-	// Fiche incomplète : on demande avant d'imprimer
+	// Fiche incomplète : on demande avant d'imprimer, en disant ce qui manque
 	onPrint := func() {
 		done, _, _, _ := s.counts()
 		left := len(s.Tests) - done
-		if left == 0 {
+		missing := s.missingInfo()
+		if left == 0 && len(missing) == 0 {
 			printNow()
 			return
 		}
-		msg := wrapLabel(fmt.Sprintf("Il reste %d test(s) à faire. La fiche imprimée les indiquera « À faire ».", left))
+		var lines []string
+		if len(missing) > 0 {
+			lines = append(lines, fmt.Sprintf("Informations non remplies : %s.", strings.Join(missing, ", ")))
+		}
+		if left > 0 {
+			lines = append(lines, fmt.Sprintf("Il reste %d test(s) à faire. La fiche imprimée les indiquera « À faire ».", left))
+		}
+		msg := wrapLabel(strings.Join(lines, "\n\n"))
 		dialog.NewCustomConfirm("Fiche incomplète", "Imprimer quand même", "Annuler",
 			container.New(&widthLayout{w: 380}, msg), func(ok bool) {
 				if ok {
@@ -291,7 +300,7 @@ func stepBar(s *session, onStep func(category string)) fyne.CanvasObject {
 func showInfo(s *session, w fyne.Window) {
 	keys := container.NewVBox(
 		formRow("Échap", wrapLabel("Annuler le test en cours ou revenir au menu")),
-		formRow("Entrée", wrapLabel("Revenir au menu une fois le résultat affiché")),
+		formRow("Entrée", wrapLabel("Valider le résultat affiché et revenir au menu")),
 		formRow("Tab", wrapLabel("Passer d'un bouton à l'autre, Entrée ou Espace pour lancer")),
 	)
 	content := container.NewVBox(

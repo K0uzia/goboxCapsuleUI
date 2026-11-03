@@ -94,7 +94,7 @@ func DetectIssues(
 	if healthPercentage < criteria.MinHealthForC {
 		issues = append(issues, "La santé de la batterie est trop basse. (<50%)")
 	}
-	if healthPercentage > 100 {
+	if healthPercentage > 105 { // une batterie neuve dépasse souvent un peu sa capacité nominale
 		issues = append(issues, "Anormal santé de la batterie (>100%), vérifier les capteurs.")
 	}
 

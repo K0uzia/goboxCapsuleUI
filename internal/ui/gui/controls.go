@@ -288,13 +288,13 @@ func cleaningText(fm *ficheForm) string {
 	case fm.CleanOut:
 		return "extérieur"
 	}
-	return "à faire"
+	return ""
 }
 
 // ficheSections la fiche, composant par composant
 func (s *session) ficheSections() []ficheSection {
 	fm := &s.Form
-	info := func(label, v string) ficheRow { return ficheRow{Label: label, Value: v} }
+	info := func(label, v string) ficheRow { return ficheRow{Label: label, Value: orUnknown(v, "non renseigné")} }
 	var smart []ficheRow
 	for _, row := range s.itemRows(ctrlSmart) {
 		if row.Status != statusNA || row.Pill != "" { // sinon : pas de disque de ce type

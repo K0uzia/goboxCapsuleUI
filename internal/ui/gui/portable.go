@@ -156,9 +156,9 @@ func diagnosticReport() (string, bool) {
 func usbReport() string {
 	var b strings.Builder
 	phys := readPhysicalPorts()
-	ports := readUSBPorts(max(phys.USB, 0))
+	ports := readUSBPorts()
 	ports.typeC = max(ports.typeC, phys.USBC)
-	fmt.Fprintf(&b, "USB : %v, total %d\n", ports.kindTotals(), ports.total)
+	fmt.Fprintf(&b, "USB : %v, total %d (BIOS : %d)\n", ports.kindTotals(), ports.total, phys.BIOSUSB)
 	typeC, _ := filepath.Glob("/sys/class/typec/*")
 	thunderbolt, _ := filepath.Glob("/sys/bus/thunderbolt/devices/domain*")
 	fmt.Fprintf(&b, "Type-C : %d entrée(s) dans /sys/class/typec, BIOS %d, thunderbolt %d\n", len(typeC), phys.USBC, len(thunderbolt))

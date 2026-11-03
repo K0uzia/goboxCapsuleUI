@@ -244,7 +244,14 @@ func collectBattery() Component {
 		return c
 	}
 	c.Grade = result.Grade
-	c.Summary = fmt.Sprintf("Santé %.0f %% · %d cycles", result.HealthPercentage, result.CycleCount)
+	health, cycles := "santé non communiquée", "cycles non communiqués"
+	if result.HealthKnown {
+		health = fmt.Sprintf("Santé %.0f %%", result.HealthPercentage)
+	}
+	if result.CycleKnown {
+		cycles = fmt.Sprintf("%d cycles", result.CycleCount)
+	}
+	c.Summary = strings.ToUpper(health[:1]) + health[1:] + " · " + cycles
 	c.Fields = []Field{{"Charge", fmt.Sprintf("%d %% (%s)", info.Capacity, batteryStatus(info.Status))}}
 	b := readBatterySys()
 	if b.remaining > 0 {
@@ -254,12 +261,20 @@ func collectBattery() Component {
 		c.Fields = append(c.Fields, Field{"Capacité d'origine", fmt.Sprintf("%.1f Wh", info.DesignCapacity/1e6)})
 	}
 	if info.CurrentCapacity > 0 {
-		c.Fields = append(c.Fields, Field{"Capacité réelle", fmt.Sprintf("%.1f Wh, soit %.0f %%", info.CurrentCapacity/1e6, result.HealthPercentage)})
+		v := fmt.Sprintf("%.1f Wh", info.CurrentCapacity/1e6)
+		if result.HealthKnown {
+			v += fmt.Sprintf(", soit %.0f %%", result.HealthPercentage)
+		}
+		c.Fields = append(c.Fields, Field{"Capacité réelle", v})
 	}
 	if info.EnergyAH > 0 {
 		c.Fields = append(c.Fields, Field{"Capacité (mAh)", fmt.Sprintf("%.0f mAh", info.EnergyAH)})
 	}
-	c.Fields = append(c.Fields, Field{"Cycles", strconv.Itoa(result.CycleCount)})
+	if result.CycleKnown {
+		c.Fields = append(c.Fields, Field{"Cycles", strconv.Itoa(result.CycleCount)})
+	} else {
+		c.Fields = append(c.Fields, Field{"Cycles", "non communiqués par la batterie"})
+	}
 	for _, f := range []struct {
 		label string
 		v     *string
@@ -303,11 +318,10 @@ type batterySys struct {
 
 func readBatterySys() batterySys {
 	var b batterySys
-	dirs, _ := filepath.Glob("/sys/class/power_supply/BAT*")
-	if len(dirs) == 0 {
+	d := batteryDir(sysPower)
+	if d == "" {
 		return b
 	}
-	d := dirs[0]
 	num := func(f string) float64 {
 		v, _ := strconv.ParseFloat(readTrim(filepath.Join(d, f)), 64)
 		return v

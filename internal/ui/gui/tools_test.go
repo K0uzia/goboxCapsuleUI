@@ -482,20 +482,39 @@ func TestRadioDetection(t *testing.T) {
 	}
 }
 
-// La puce pulse tant que le technicien et le nettoyage ne sont pas remplis.
+// Chaque information de la fiche est signalée tant qu'elle est vide : aucune
+// valeur n'est remplie d'avance à la place du technicien.
 func TestPulseDots(t *testing.T) {
 	a := test.NewApp()
 	defer a.Quit()
 	a.Settings().SetTheme(newTheme(true))
 	s := newSession()
 	f := newFichePanel(s)
-	if !f.techDot.root.Visible() || !f.cleanDot.root.Visible() {
-		t.Fatal("les deux puces doivent être visibles au départ")
+	if !f.techDot.root.Visible() {
+		t.Fatal("puce du technicien visible au départ")
+	}
+	for i, r := range f.reqs {
+		if r.empty() && (!r.dot.root.Visible() || r.ring.Hidden) {
+			t.Fatalf("champ %d vide non signalé", i)
+		}
+	}
+	if f.todo.Hidden || !strings.Contains(f.todo.Text, "aspect") || !strings.Contains(f.todo.Text, "shred") {
+		t.Fatalf("liste à remplir : %q", f.todo.Text)
 	}
 	s.Form.Tech = "Alex"
 	f.showTechHint()
 	if f.techDot.root.Visible() {
 		t.Error("technicien rempli : puce masquée")
+	}
+	s.Form.Aspect, s.Form.CleanIn, s.Form.Paste, s.Form.Shred, s.Form.CMOS, s.Form.DVD = "Occasion", true, "non", "oui", "non", "absent"
+	f.updateRequired()
+	for i, r := range f.reqs {
+		if r.dot.root.Visible() || !r.ring.Hidden {
+			t.Fatalf("champ %d rempli encore signalé", i)
+		}
+	}
+	if !f.todo.Hidden {
+		t.Fatalf("plus rien à remplir : %q", f.todo.Text)
 	}
 }
 
@@ -938,7 +957,7 @@ func TestParseDMIConnectors(t *testing.T) {
 func TestUSBPortsCount(t *testing.T) {
 	p := usbPorts{group: map[string]string{"usb1-port1": "usb1-port1", "usb2-port1": "usb1-port1", "usb1-port3": "usb1-port3"},
 		possible: map[string]string{"usb2-port6": "usb1-port3", "usb1-port8": "usb1-port8"}}
-	p.finish(0)
+	p.finish()
 	if p.total != 2 {
 		t.Fatalf("total %d, attendu 2", p.total)
 	}
@@ -951,13 +970,9 @@ func TestUSBPortsCount(t *testing.T) {
 	if p.adopt("1-8") != "usb1-port8" || p.total != 3 {
 		t.Fatalf("branchement sur un port non renseigné : total %d", p.total)
 	}
-	// aucun port renseigné : BIOS, sinon nombre inconnu
+	// aucun port renseigné : nombre inconnu, la liste du BIOS n'est pas un compte
 	none := usbPorts{group: map[string]string{}, possible: map[string]string{"usb1-port1": "usb1-port1"}}
-	none.finish(4)
-	if none.total != 4 {
-		t.Fatalf("repli BIOS : %d", none.total)
-	}
-	none.finish(0)
+	none.finish()
 	if none.total != -1 {
 		t.Fatalf("inconnu : %d", none.total)
 	}

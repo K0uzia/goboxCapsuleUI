@@ -10,6 +10,8 @@ type BatteryHealthTest struct {
 	Status           string
 	Grade            common.Grade
 	HealthPercentage float64
+	HealthKnown      bool // faux : capacités non communiquées, santé inconnue
+	CycleKnown       bool
 	CycleCount       int
 	Issues           []string
 	Timestamp        time.Time

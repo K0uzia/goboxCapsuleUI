@@ -21,6 +21,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"gobox/internal/probe"
@@ -32,10 +33,14 @@ import (
 // nombre de prises n'est pas connu, seuls les branchements sont comptés
 type portTile struct {
 	root          fyne.CanvasObject
+	box           *fyne.Container
 	bg            *tRect
 	count, status *tText
 	bar           *thinBar
 	tested, total int
+	dead          int // prises sans réaction, comptées testées et défectueuses
+	deadText      *tText
+	deadUndo      *widget.Button
 }
 
 func newPortTile(ico, label string, total int) *portTile {
@@ -44,9 +49,35 @@ func newPortTile(ico, label string, total int) *portTile {
 	p.count.Mono = true
 	p.status = text("", 11, false, cMuted)
 	head := container.NewHBox(iconOf(ico, cMuted, 15), container.NewCenter(caption(label)))
-	p.root = container.NewStack(p.bg, container.New(&padLayout{h: 12, v: 10}, container.NewVBox(head, p.count, p.bar.root, p.status)))
+	p.box = container.NewVBox(head, p.count, p.bar.root, p.status)
+	p.root = container.NewStack(p.bg, container.New(&padLayout{h: 12, v: 10}, p.box))
 	p.set(0)
 	return p
+}
+
+// allowDead ajoute « Sans réaction » : la prise a été essayée et rien n'a été
+// détecté. onChange reçoit +1 ou -1.
+func (p *portTile) allowDead(onChange func(delta int)) {
+	p.deadText = text("", 11, true, cDanger)
+	p.deadUndo = iconButton(theme.ContentUndoIcon(), func() { onChange(-1) })
+	p.deadUndo.Hide()
+	p.deadText.Hide()
+	mark := secondaryButton("Sans réaction", buttonIcon("circle-xmark"), func() { onChange(1) })
+	p.box.Add(container.NewBorder(nil, nil, nil, p.deadUndo, mark))
+	p.box.Add(p.deadText)
+}
+
+// setDead détectés et prises sans réaction
+func (p *portTile) setDead(detected, dead int) {
+	p.dead = dead
+	p.set(detected + dead)
+	if p.deadText == nil {
+		return
+	}
+	p.deadText.SetText(fmt.Sprintf("%d sans réaction (défectueuse)", dead))
+	p.deadText.Hidden, p.deadUndo.Hidden = dead == 0, dead == 0
+	p.deadText.Refresh()
+	p.deadUndo.Refresh()
 }
 
 func (p *portTile) set(tested int) {
@@ -62,6 +93,9 @@ func (p *portTile) set(tested int) {
 		p.bar.set(0)
 		p.bg.setRoles(cSurface2, cLine)
 		p.count.Role, p.status.Text = cText, "Nombre de prises non lu"
+	case tested >= p.total && p.dead > 0:
+		p.bg.setRoles(cDangerBg, cDanger)
+		p.count.Role, p.status.Text = cDanger, "Tous testés"
 	case tested >= p.total:
 		p.bg.setRoles(cSuccessBg, cSuccess)
 		p.count.Role, p.status.Text = cSuccess, "Tous testés"
@@ -88,7 +122,7 @@ func portCount(tested, total int) string {
 func runPorts(t *testCtx) result {
 	t.progress(-1)
 	phys := readPhysicalPorts()
-	usb := readUSBPorts(max(phys.USB, 0))
+	usb := readUSBPorts()
 	usb.typeC = max(usb.typeC, phys.USBC)
 	conns := videoConnectors()
 	if simulated {
@@ -103,22 +137,32 @@ func runPorts(t *testCtx) result {
 	// Prises défectueuses : surintensité déjà comptée, puis erreurs du noyau à
 	// chaque branchement raté. Seul ce qui arrive après le début du test compte.
 	usbBad := map[string]bool{}
+	usbBadOther := 0            // erreurs du noyau sur un port non identifié
+	usbDead := map[string]int{} // prises sans réaction, signalées par le technicien (par type)
 	for _, port := range usb.overCurrentPorts() {
 		usbBad[port] = true
 	}
-	logSeen := len(kernelLog())
+	// lignes déjà lues : le journal du noyau tourne, sa longueur ne suffit pas
+	logSeen := map[string]bool{}
+	for _, line := range strings.Split(kernelLog(), "\n") {
+		logSeen[line] = true
+	}
 	checkKernel := func() {
-		log := kernelLog()
-		if len(log) <= logSeen {
-			return
-		}
-		for _, name := range parseUSBErrors(log[logSeen:]) {
-			if port := usb.portOfError(name); port != "" && !usbBad[port] {
-				usbBad[port] = true
-				t.log("Erreur : prise USB défectueuse (%s)", name)
+		for _, line := range strings.Split(kernelLog(), "\n") {
+			if logSeen[line] {
+				continue
+			}
+			logSeen[line] = true
+			for _, name := range parseUSBErrors(line) {
+				if port := usb.portOfError(name); port != "" && !usbBad[port] {
+					usbBad[port] = true
+					t.log("Erreur : prise USB défectueuse (%s)", name)
+				} else if port == "" {
+					usbBadOther++
+					t.log("Erreur USB du noyau sur %s : prise non identifiée, comptée défectueuse", name)
+				}
 			}
 		}
-		logSeen = len(log)
 	}
 
 	// un port déjà occupé (clavier, souris, écran) est un port qui marche
@@ -176,7 +220,7 @@ func runPorts(t *testCtx) result {
 		return n
 	}
 	if usb.total < 0 {
-		t.log("USB : le microprogramme n'indique pas les prises, seuls les branchements sont comptés")
+		t.log("USB : le microprogramme n'indique pas les prises, seuls les branchements sont comptés (le BIOS en liste %d, souvent plus qu'il n'y en a)", phys.BIOSUSB)
 	} else {
 		t.log("%d prise(s) USB, dont %d déjà occupée(s)", usb.total, len(usbTested))
 	}
@@ -194,26 +238,38 @@ func runPorts(t *testCtx) result {
 	// n'est pas connu apparaissent au premier branchement
 	tiles := map[string]*portTile{}
 	grid := container.New(&respGrid{minCol: 130, cols: []int{4, 3, 2}, gap: 8})
+	var update func()
 	tile := func(key, ico string, total int) *portTile {
 		tl := tiles[key]
 		if tl == nil {
 			tl = newPortTile(ico, key, total)
+			if ico == "usb" {
+				// une prise morte ne laisse aucune trace dans le système : le
+				// technicien la signale
+				tl.allowDead(func(delta int) {
+					usbDead[key] = max(0, usbDead[key]+delta)
+					if delta > 0 {
+						t.log("Prise %s sans réaction, signalée par le technicien", key)
+					}
+					update()
+				})
+			}
 			tiles[key] = tl
 			grid.Add(tl.root)
 		}
 		return tl
 	}
-	update := func() {
+	update = func() {
 		t.ui(func() {
 			if usb.total < 0 {
-				tile("USB", "usb", -1).set(len(usbTested))
+				tile("USB", "usb", -1).setDead(len(usbTested), usbDead["USB"])
 			} else {
 				totals := usb.kindTotals()
 				for _, kind := range usbKindOrder {
 					if n, done := totals[kind], usbCount(kind); n > 0 || done > 0 {
 						tl := tile(kind, "usb", n)
 						tl.total = n
-						tl.set(done)
+						tl.setDead(done, usbDead[kind])
 					}
 				}
 			}
@@ -227,7 +283,7 @@ func runPorts(t *testCtx) result {
 	}
 	t.panel(func() fyne.CanvasObject {
 		content := container.NewVBox(
-			instruction("plug", "Branchez une clé USB sur chaque port, puis un écran sur chaque sortie vidéo. Un port déjà occupé compte comme testé."),
+			instruction("plug", "Branchez une clé USB sur chaque port, puis un écran sur chaque sortie vidéo. Un port déjà occupé compte comme testé. Une prise où la clé n'est pas détectée : « Sans réaction » sous son type."),
 			grid,
 		)
 		if screen != "" {
@@ -250,11 +306,23 @@ func runPorts(t *testCtx) result {
 		case s := <-answer:
 			t.clearAsk()
 			checkKernel()
-			data := map[string]string{"usb": portCount(len(usbTested), usb.total)}
-			if len(usbBad) > 0 {
+			deadTotal := 0
+			for _, n := range usbDead {
+				deadTotal += n
+			}
+			data := map[string]string{"usb": portCount(len(usbTested)+deadTotal, usb.total)}
+			if len(usbBad)+usbBadOther+deadTotal > 0 {
 				var bad []string
 				for port := range usbBad {
 					bad = append(bad, usb.kindOf(port))
+				}
+				for i := 0; i < usbBadOther; i++ {
+					bad = append(bad, "USB")
+				}
+				for kind, n := range usbDead {
+					for i := 0; i < n; i++ {
+						bad = append(bad, kind)
+					}
 				}
 				sort.Strings(bad)
 				data["usb_bad"] = fmt.Sprintf("%d : %s", len(bad), strings.Join(bad, ", "))
@@ -266,7 +334,7 @@ func runPorts(t *testCtx) result {
 			if usb.total >= 0 {
 				totals := usb.kindTotals()
 				for _, kind := range usbKindOrder {
-					if n, done := totals[kind], usbCount(kind); n > 0 || done > 0 {
+					if n, done := totals[kind], usbCount(kind)+usbDead[kind]; n > 0 || done > 0 {
 						data[kind] = portCount(done, n)
 					}
 				}
@@ -297,6 +365,9 @@ func runPorts(t *testCtx) result {
 				port := usb.portOf(dev)
 				if port == "" {
 					port = usb.adopt(dev)
+				}
+				if port == "" && !simulated {
+					port = usb.adoptPort(sysUSB, dev)
 				}
 				switch {
 				case port == "":
@@ -905,13 +976,17 @@ func (z *mouseZone) MouseOut()                      {}
 
 func runWebcam(t *testCtx) result {
 	t.progress(-1)
-	cams, _ := filepath.Glob("/dev/video*")
-	if len(cams) == 0 {
-		t.log("Aucun périphérique /dev/video* détecté")
+	found := cameras(sysV4L)
+	if len(found) == 0 {
+		t.log("Aucune caméra détectée")
 		s := t.choose("Aucune webcam détectée :", choice{"Pas de webcam", statusNA}, choice{"Nul", statusFail})
 		return result{Status: s, Detail: "Aucune caméra détectée"}
 	}
-	t.log("Caméra(s) : %s", strings.Join(cams, ", "))
+	var cams []string
+	for _, c := range found {
+		cams = append(cams, c.Dev)
+		t.log("Caméra : %s (%s)", orUnknown(c.Name, "sans nom"), c.Dev)
+	}
 
 	var viewer *exec.Cmd
 	switch {

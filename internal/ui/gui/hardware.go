@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"gobox/internal/probe"
 )
 
 // Lecture directe de /sys pour ce que les tests et la fiche ont besoin de
@@ -62,9 +64,70 @@ func absentHardware() map[string]string {
 }
 
 func hasWebcam() bool {
-	cams, _ := filepath.Glob("/dev/video*")
-	return len(cams) > 0 || usbHasInterface("0e") // classe USB « vidéo »
+	return len(cameras(sysV4L)) > 0 || usbHasInterface("0e") // classe USB « vidéo »
 }
+
+const sysV4L = "/sys/class/video4linux"
+
+// camera une caméra physique et le nœud /dev/video qui donne son image
+type camera struct {
+	Name, Dev string
+}
+
+// cameras une entrée par caméra physique. Une webcam crée plusieurs nœuds
+// /dev/video (image, métadonnées, capteur infrarouge sur une autre interface du
+// même appareil) : on regroupe par appareil USB ou PCI et on garde le nœud
+// d'index 0.
+func cameras(root string) []camera {
+	type node struct {
+		name, dev string
+		index     int
+	}
+	byDevice := map[string]node{}
+	var order []string
+	dirs, _ := filepath.Glob(filepath.Join(root, "video*"))
+	sort.Strings(dirs)
+	for _, d := range dirs {
+		real, err := filepath.EvalSymlinks(filepath.Join(d, "device"))
+		if err != nil {
+			continue
+		}
+		dev := real
+		if base := filepath.Base(real); strings.Contains(base, ":") && usbDevName.MatchString(strings.SplitN(base, ":", 2)[0]) {
+			dev = filepath.Dir(real) // interface USB (1-5:1.0) → appareil (1-5)
+		}
+		idx, err := strconv.Atoi(readTrim(filepath.Join(d, "index")))
+		if err != nil {
+			idx = 0
+		}
+		n := node{readTrim(filepath.Join(d, "name")), "/dev/" + filepath.Base(d), idx}
+		old, seen := byDevice[dev]
+		if !seen {
+			order = append(order, dev)
+		}
+		if !seen || n.index < old.index {
+			byDevice[dev] = n
+		}
+	}
+	// Le capteur infrarouge (Windows Hello) est parfois un appareil USB à part :
+	// ce n'est pas une seconde webcam
+	var out, ir []camera
+	for _, dev := range order {
+		n := byDevice[dev]
+		c := camera{Name: n.name, Dev: n.dev}
+		if infraredCamera.MatchString(n.name) {
+			ir = append(ir, c)
+		} else {
+			out = append(out, c)
+		}
+	}
+	if len(out) == 0 {
+		return ir
+	}
+	return out
+}
+
+var infraredCamera = regexp.MustCompile(`(?i)\b(ir|infrared|infrarouge)\b`)
 
 // hasCardReader lecteur SD intégré (PCI : mmc_host) ou lecteur USB interne
 func hasCardReader() bool {
@@ -149,16 +212,8 @@ func internalDisks() []blockDisk {
 	dirs, _ := filepath.Glob("/sys/block/*")
 	for _, d := range dirs {
 		name := filepath.Base(d)
-		for _, p := range []string{"loop", "ram", "zram", "sr", "mmcblk", "dm-", "md", "fd", "nbd"} {
-			if strings.HasPrefix(name, p) {
-				name = ""
-			}
-		}
-		if name == "" || readTrim(filepath.Join(d, "removable")) == "1" {
-			continue
-		}
-		if real, err := filepath.EvalSymlinks(d); err == nil && strings.Contains(real, "/usb") {
-			continue
+		if strings.HasPrefix(name, "mmcblk") || !probe.IsInternalDisk(d) {
+			continue // eMMC : pas de test SMART
 		}
 		kind := "ssd"
 		switch {
@@ -252,9 +307,10 @@ func (p usbPorts) kindTotals() map[string]int {
 	return out
 }
 
-// readUSBPorts lit les ports ; dmiUSB (prises listées par le BIOS) ne sert que
-// si le microprogramme ne renseigne aucun port
-func readUSBPorts(dmiUSB int) usbPorts {
+// readUSBPorts lit les ports déclarés par le microprogramme (ACPI). La liste du
+// BIOS (DMI) n'en donne jamais le nombre : elle compte souvent les ports du
+// chipset, câblés ou non, et annonce plus de prises qu'il n'y en a.
+func readUSBPorts() usbPorts {
 	p := usbPorts{group: map[string]string{}, possible: map[string]string{}, kinds: map[string]string{}}
 	typeC, _ := filepath.Glob("/sys/class/typec/port?")
 	p.typeC = len(typeC)
@@ -289,13 +345,14 @@ func readUSBPorts(dmiUSB int) usbPorts {
 			}
 		}
 	}
-	p.finish(dmiUSB)
+	p.finish()
 	return p
 }
 
 // finish compte les prises : la moitié USB 3 non renseignée d'une prise connue
-// en fait partie
-func (p *usbPorts) finish(dmiUSB int) {
+// en fait partie. Sans port renseigné, le nombre reste inconnu : seuls les
+// branchements comptent.
+func (p *usbPorts) finish() {
 	seen := map[string]bool{}
 	for _, k := range p.group {
 		seen[k] = true
@@ -309,9 +366,6 @@ func (p *usbPorts) finish(dmiUSB int) {
 	p.total, p.fromACPI = len(seen), len(seen) > 0
 	if !p.fromACPI {
 		p.total = -1
-		if dmiUSB > 0 {
-			p.total = dmiUSB
-		}
 	}
 }
 
@@ -332,6 +386,43 @@ func (p *usbPorts) adopt(dev string) string {
 		p.total++
 	}
 	return port
+}
+
+// adoptPort un périphérique est branché sur un port que le microprogramme dit
+// sans prise, ou ne renseigne pas : il y a donc bien une prise. Le port qui le
+// porte directement devient une prise (avec sa moitié USB 2 ou 3). root :
+// /sys/bus/usb/devices.
+func (p *usbPorts) adoptPort(root, dev string) string {
+	m := usbDevName.FindStringSubmatch(dev)
+	if m == nil {
+		return ""
+	}
+	bus, chain := m[1], strings.Split(m[2], ".")
+	parent := "usb" + bus
+	if len(chain) > 1 {
+		parent = bus + "-" + strings.Join(chain[:len(chain)-1], ".")
+	}
+	name := parent + "-port" + chain[len(chain)-1]
+	found, _ := filepath.Glob(filepath.Join(root, parent, "*:1.0", name))
+	if len(found) == 0 {
+		return ""
+	}
+	port := found[0]
+	key := name
+	if peer, err := os.Readlink(filepath.Join(port, "peer")); err == nil && filepath.Base(peer) < key {
+		key = filepath.Base(peer)
+	}
+	known := false
+	for _, k := range p.group {
+		known = known || k == key
+	}
+	p.kinds[key] = betterKind(p.kinds[key], portKind(filepath.Join(root, parent), port))
+	p.group[name] = key
+	delete(p.possible, name)
+	if !known && p.total >= 0 {
+		p.total++
+	}
+	return key
 }
 
 // usbKernelError erreurs par lesquelles le noyau signale une prise qui ne marche pas
@@ -456,6 +547,7 @@ type physicalPorts struct {
 	USBC     int            // prises USB-C listées par le BIOS
 	Why      string         // pourquoi le nombre est inconnu
 	USB      int            // < 0 : nombre inconnu
+	BIOSUSB  int            // prises USB listées par le BIOS, pour le diagnostic seulement
 	USBKinds map[string]int // type de prise USB → nombre
 }
 
@@ -504,9 +596,9 @@ func readPhysicalPorts() physicalPorts {
 	if len(video) == 0 {
 		video = gpuPorts(videoConnectors(), cardDrivers())
 	}
-	ports := readUSBPorts(usb)
+	ports := readUSBPorts()
 	ports.typeC = max(ports.typeC, usbC)
-	return physicalPorts{Video: video, USBC: usbC, Why: why, USB: ports.total, USBKinds: ports.kindTotals()}
+	return physicalPorts{Video: video, USBC: usbC, Why: why, USB: ports.total, BIOSUSB: usb, USBKinds: ports.kindTotals()}
 }
 
 // loadTypeCDriver charge le pilote qui révèle les prises USB-C (en mémoire seulement,

@@ -97,6 +97,35 @@ func TestCaptures(t *testing.T) {
 		time.Sleep(300 * time.Millisecond)
 	})
 	simulated = false
+	// clavier : poste fixe (complet), puis portable en données simulées
+	manageSuperKey = false
+	for _, laptop := range []bool{false, true} {
+		simulated = laptop
+		name := map[bool]string{false: "sombre-test-clavier-complet", true: "sombre-test-clavier-portable"}[laptop]
+		capture(t, dir, name, big, true, func(tools *toolsPanel, s *session, w fyne.Window) {
+			test.Tap(tools.buttons["clavier"])
+			time.Sleep(300 * time.Millisecond)
+			if trap, ok := w.Canvas().Focused().(*keyTrap); ok {
+				for _, code := range []int{24, 25, 26, 67, 111, 65} {
+					trap.KeyDown(&fyne.KeyEvent{Physical: fyne.HardwareKey{ScanCode: code}})
+				}
+			}
+			time.Sleep(200 * time.Millisecond)
+		})
+	}
+	simulated = false
+	capture(t, dir, "sombre-test-maj-attente", big, true, func(tools *toolsPanel, s *session, w fyne.Window) {
+		var def *testDef
+		for _, d := range s.Tests {
+			if d.ID == "maj" {
+				def = d
+			}
+		}
+		def.Run = func(tc *testCtx) result { return applyUpdate(tc, "Linux Mint 22", "apt-get", nil) }
+		test.Tap(tools.buttons["maj"])
+		time.Sleep(300 * time.Millisecond)
+	})
+	capture(t, dir, "sombre-fiche-a-remplir-1366", fyne.NewSize(1366, 768), true, nil)
 	captureInventory(t, dir)
 	captureStress(t, dir)
 	capture(t, dir, "sombre-stress-reglages-1366", fyne.NewSize(1366, 768), true, func(tools *toolsPanel, s *session, w fyne.Window) {

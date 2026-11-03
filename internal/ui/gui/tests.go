@@ -43,6 +43,14 @@ func (t *testCtx) progress(f float64) {
 	fyne.Do(func() { t.view.setProgress(f) })
 }
 
+// waiting rien ne tourne tant que le technicien n'a pas répondu
+func (t *testCtx) waiting() {
+	if t.cancelled() {
+		return
+	}
+	fyne.Do(func() { t.view.setWaiting() })
+}
+
 // panel construit (sur le thread UI) et affiche un contenu propre au test
 func (t *testCtx) panel(build func() fyne.CanvasObject) {
 	fyne.DoAndWait(func() { t.view.setPanel(build()) })

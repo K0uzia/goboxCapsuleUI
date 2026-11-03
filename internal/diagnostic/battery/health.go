@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"gobox/internal/diagnostic/common"
+
 	"gobox/internal/probe"
 )
 
@@ -24,22 +26,34 @@ func RunBatteryTest() (BatteryHealthTest, error) {
 	// 3. Charger les critères
 	criteria := DefaultBatteryGradingCriteria()
 
-	// 4. Calculer la santé
-	healthPercent := CalculateHealthPercent(info.DesignCapacity, info.CurrentCapacity)
+	return Evaluate(info, criteria), nil
+}
 
-	// 5. Obtenir le grade
-	grade := ComputeGrade(criteria, healthPercent, info.Cycle)
+// Evaluate note une batterie lue. Sans capacités, la santé est inconnue : ni
+// note ni alerte inventée à partir d'un 0.
+func Evaluate(info probe.BatteryInfo, criteria BatteryGradingCriteria) BatteryHealthTest {
+	known := info.DesignCapacity > 0 && info.CurrentCapacity > 0
+	healthPercent := 0.0
+	var grade common.Grade
+	issues := []string{}
+	if known {
+		healthPercent = CalculateHealthPercent(info.DesignCapacity, info.CurrentCapacity)
+		cycles := info.Cycle
+		if !info.CycleKnown {
+			cycles = 0
+		}
+		grade = ComputeGrade(criteria, healthPercent, cycles)
+		issues = DetectIssues(info.Status, healthPercent, cycles, criteria)
+	}
 
-	// 6. Détecter les problèmes
-	issues := DetectIssues(info.Status, healthPercent, info.Cycle, criteria)
-
-	// 7. Construire et retourner le résultat
 	return BatteryHealthTest{
 		Status:           info.Status,
 		Grade:            grade,
 		HealthPercentage: healthPercent,
+		HealthKnown:      known,
 		CycleCount:       info.Cycle,
+		CycleKnown:       info.CycleKnown,
 		Issues:           issues,
 		Timestamp:        time.Now(),
-	}, nil
+	}
 }

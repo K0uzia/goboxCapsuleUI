@@ -2,6 +2,8 @@ package gui
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -151,14 +153,44 @@ func newSession() *session {
 	return &session{
 		Ref:     fmt.Sprintf("RC-%s", now.Format("2006-0102-1504")),
 		Started: now,
+		// Rien n'est rempli d'avance : une valeur par défaut passerait pour une
+		// réponse du technicien. Sans lecteur optique, DVD « absent » est un fait.
 		Form: ficheForm{
-			Aspect: "Occasion", Paste: "non", Shred: "non",
-			CMOS: "non", DVD: "absent",
+			DVD:    map[bool]string{true: "", false: "absent"}[hasOpticalDrive("/sys/block")],
 			Checks: map[string]status{}, Texts: map[string]string{},
 		},
 		Tests:   testDefs(),
 		Results: map[string]result{},
 	}
+}
+
+// hasOpticalDrive vrai si un lecteur CD/DVD est présent (sr0…)
+func hasOpticalDrive(root string) bool {
+	found, _ := filepath.Glob(filepath.Join(root, "sr*"))
+	return len(found) > 0
+}
+
+// missingInfo informations de la fiche que le technicien n'a pas encore remplies
+func (s *session) missingInfo() []string {
+	fm := &s.Form
+	var out []string
+	for _, f := range []struct {
+		label string
+		empty bool
+	}{
+		{"technicien", strings.TrimSpace(fm.Tech) == ""},
+		{"aspect", fm.Aspect == ""},
+		{"nettoyage", !fm.CleanIn && !fm.CleanOut},
+		{"pâte thermique", fm.Paste == ""},
+		{"shred", fm.Shred == ""},
+		{"pile setup", fm.CMOS == ""},
+		{"lecteur DVD", fm.DVD == ""},
+	} {
+		if f.empty {
+			out = append(out, f.label)
+		}
+	}
+	return out
 }
 
 // onChange enregistre une fonction appelée à chaque modification

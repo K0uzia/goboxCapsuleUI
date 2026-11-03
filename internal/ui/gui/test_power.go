@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+
+	"gobox/internal/probe"
 )
 
 // Batterie et chargeur : deux tests distincts, car un PC arrive souvent sans son
@@ -49,9 +51,17 @@ func readCharger(root string) charger {
 	return c
 }
 
-func hasBattery(root string) bool {
-	found, _ := filepath.Glob(filepath.Join(root, "BAT*"))
-	return len(found) > 0
+func hasBattery(root string) bool { return batteryDir(root) != "" }
+
+// batteryDir dossier de la batterie du PC dans root, "" sans batterie
+func batteryDir(root string) string {
+	dirs, _ := filepath.Glob(filepath.Join(root, "*"))
+	for _, d := range dirs {
+		if probe.IsSystemBattery(d) {
+			return d
+		}
+	}
+	return ""
 }
 
 // chargeVerdict résultat de la charge, chargeur branché
@@ -150,11 +160,11 @@ func runBatteryCharge(t *testCtx) result {
 	if !t.sleep(5 * time.Second) { // l'état met quelques secondes à se stabiliser
 		return result{}
 	}
-	dirs, _ := filepath.Glob(filepath.Join(sysPower, "BAT*"))
-	if len(dirs) == 0 {
+	dir := batteryDir(sysPower)
+	if dir == "" {
 		return result{Status: statusNA, Detail: "Pas de batterie"}
 	}
-	st, detail := chargeVerdict(readTrim(filepath.Join(dirs[0], "status")), readBatterySys().power)
+	st, detail := chargeVerdict(readTrim(filepath.Join(dir, "status")), readBatterySys().power)
 	detail = strings.ToUpper(detail[:1]) + detail[1:]
 	t.log("%s", detail)
 	return result{Status: st, Detail: detail}

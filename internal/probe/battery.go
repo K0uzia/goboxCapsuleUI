@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"gobox/internal/sysfs"
@@ -20,10 +19,11 @@ type BatteryInfo struct {
 	Technology      *string
 	Capacity        int
 	Cycle           int
+	CycleKnown      bool // faux : le microprogramme ne compte pas les cycles
 	EnergyAH        float64
 	VoltageNow      float64
-	DesignCapacity  float64 // 🆕 Capacité théorique (neuve)
-	CurrentCapacity float64 // 🆕 Capacité actuelle
+	DesignCapacity  float64 // capacité neuve, µWh (0 : non communiquée)
+	CurrentCapacity float64 // capacité actuelle, µWh (0 : non communiquée)
 }
 
 var (
@@ -58,8 +58,14 @@ func GetBatteryInfo() (BatteryInfo, error) {
 	if err != nil {
 		return BatteryInfo{}, err
 	}
+	return ReadBattery(path)
+}
 
-	// Required fields
+// ReadBattery lit une batterie de /sys/class/power_supply. Selon le pilote, les
+// capacités sont en énergie (energy_*, µWh) ou en charge (charge_*, µAh) : la
+// charge est convertie en énergie avec la tension nominale, pour que santé et
+// affichage aient la même unité.
+func ReadBattery(path string) (BatteryInfo, error) {
 	capacity, err := sysfs.ReadInt(filepath.Join(path, "capacity"))
 	if err != nil {
 		return BatteryInfo{}, fmt.Errorf("reading capacity: %w", err)
@@ -70,35 +76,41 @@ func GetBatteryInfo() (BatteryInfo, error) {
 		return BatteryInfo{}, fmt.Errorf("reading status: %w", err)
 	}
 
-	// Optional fields (no error handling, use empty string if missing)
 	manufacturer, _ := sysfs.ReadFileOptional(filepath.Join(path, "manufacturer"))
 	model, _ := sysfs.ReadFileOptional(filepath.Join(path, "model_name"))
 	serialNumber, _ := sysfs.ReadFileOptional(filepath.Join(path, "serial_number"))
 	technology, _ := sysfs.ReadFileOptional(filepath.Join(path, "technology"))
 
-	cycle := 0
-	if c, err := sysfs.ReadInt(filepath.Join(path, "cycle_count")); err == nil {
-		cycle = c
+	num := func(f string) float64 {
+		v, err := sysfs.ReadFloat(filepath.Join(path, f))
+		if err != nil || v < 0 {
+			return 0
+		}
+		return v
 	}
 
-	voltNow := 0.0
-	if v, err := sysfs.ReadFloat(filepath.Join(path, "voltage_now")); err == nil {
-		voltNow = v
+	cycle, cycleErr := sysfs.ReadInt(filepath.Join(path, "cycle_count"))
+	if cycleErr != nil || cycle < 0 {
+		cycle = 0
 	}
 
-	currentCapacity := 0.0
-	if e, err := sysfs.ReadFloat(filepath.Join(path, "energy_full")); err == nil {
-		currentCapacity = e
+	voltNow := num("voltage_now")
+	volt := num("voltage_min_design")
+	if volt == 0 {
+		volt = voltNow
 	}
-
-	// Capacité théorique (neuve)
-	designCapacity := 0.0
-	if e, err := sysfs.ReadFloat(filepath.Join(path, "energy_full_design")); err == nil {
-		designCapacity = e
+	energy := func(name string) float64 {
+		if e := num("energy_" + name); e > 0 {
+			return e
+		}
+		return num("charge_"+name) * volt / 1e6 // µAh × µV
 	}
+	currentCapacity, designCapacity := energy("full"), energy("full_design")
 
-	// Convert Wh to Ah (silent error handling)
-	energyAH, _ := utils.ConvertWattToAmpere(path, currentCapacity)
+	energyAH := num("charge_full") / 1000 // µAh → mAh
+	if energyAH == 0 {
+		energyAH, _ = utils.ConvertWattToAmpere(path, currentCapacity)
+	}
 
 	return BatteryInfo{
 		Status:          status,
@@ -108,11 +120,23 @@ func GetBatteryInfo() (BatteryInfo, error) {
 		Technology:      strPtrIfNotEmpty(technology),
 		Capacity:        capacity,
 		Cycle:           cycle,
+		CycleKnown:      cycleErr == nil && cycle > 0,
 		EnergyAH:        energyAH,
 		VoltageNow:      voltNow,
 		CurrentCapacity: currentCapacity,
 		DesignCapacity:  designCapacity,
 	}, nil
+}
+
+// IsSystemBattery vrai pour la batterie du PC : type Battery, sans les piles d'une
+// souris ou d'un clavier sans fil (scope Device). Le nom varie : BAT0, BAT1,
+// CMB0, battery…
+func IsSystemBattery(dir string) bool {
+	if typ, _ := sysfs.ReadFileOptional(filepath.Join(dir, "type")); typ != "Battery" {
+		return false
+	}
+	scope, _ := sysfs.ReadFileOptional(filepath.Join(dir, "scope"))
+	return scope != "Device"
 }
 
 func findBatteryPath() (string, error) {
@@ -121,9 +145,8 @@ func findBatteryPath() (string, error) {
 		return "", fmt.Errorf("listing power_supply: %w", err)
 	}
 	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, "BAT") {
-			return filepath.Join(pathPowerSupply, name), nil
+		if dir := filepath.Join(pathPowerSupply, entry.Name()); IsSystemBattery(dir) {
+			return dir, nil
 		}
 	}
 	return "", errors.New("no battery found")

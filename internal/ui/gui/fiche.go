@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -20,7 +21,8 @@ type fichePanel struct {
 	techRing *tRect
 	techHint *tText
 	techDot  *pulseDot
-	cleanDot *pulseDot
+	reqs     []reqMark // champs à remplir, signalés tant qu'ils sont vides
+	todo     *tText    // « À remplir : … » dans l'en-tête fixe
 
 	counts       *tText
 	progress     *thinBar
@@ -49,6 +51,7 @@ func newFichePanel(s *session) *fichePanel {
 		s.Form.Tech = v
 		if wasEmpty != (v == "") {
 			f.showTechHint()
+			f.updateRequired()
 			s.changed() // l'étape « Diagnostic initial » dépend du technicien
 		}
 	}
@@ -75,6 +78,7 @@ func newFichePanel(s *session) *fichePanel {
 		container.NewCenter(f.techHint),
 	)
 	f.showTechHint()
+	f.todo = text("", 12, true, cAccent)
 
 	// Synthèse : machine, aspect, nettoyage, verdict
 	f.machineName = text("Détection…", 13, true, cText)
@@ -83,18 +87,15 @@ func newFichePanel(s *session) *fichePanel {
 	f.machineSN.Mono = true
 	machine := box(container.NewVBox(caption("Machine"), f.machineName, f.machineModel, f.machineSN), cLine, cSurface)
 
-	aspect := widget.NewRadioGroup([]string{"Neuf", "Occasion", "Nul"}, func(v string) { s.Form.Aspect = v })
+	aspect := widget.NewRadioGroup([]string{"Neuf", "Occasion", "Nul"}, func(v string) { s.Form.Aspect = v; f.updateRequired() })
 	aspect.SetSelected(s.Form.Aspect)
-	aspectBox := box(container.NewVBox(caption("Aspect"), aspect), cLine, cSurface)
+	aspectBox := f.requiredBox("Aspect", aspect, func() bool { return s.Form.Aspect == "" })
 
-	f.cleanDot = newPulseDot()
-	showClean := func() { f.cleanDot.show(!s.Form.CleanIn && !s.Form.CleanOut) }
-	cleanIn := widget.NewCheck("Intérieur", func(b bool) { s.Form.CleanIn = b; showClean() })
+	cleanIn := widget.NewCheck("Intérieur", func(b bool) { s.Form.CleanIn = b; f.updateRequired() })
 	cleanIn.SetChecked(s.Form.CleanIn)
-	cleanOut := widget.NewCheck("Extérieur", func(b bool) { s.Form.CleanOut = b; showClean() })
+	cleanOut := widget.NewCheck("Extérieur", func(b bool) { s.Form.CleanOut = b; f.updateRequired() })
 	cleanOut.SetChecked(s.Form.CleanOut)
-	showClean()
-	cleanBox := box(container.NewVBox(container.NewHBox(caption("Nettoyage"), container.NewCenter(f.cleanDot.root)), cleanIn, cleanOut), cLine, cSurface)
+	cleanBox := f.requiredBox("Nettoyage", container.NewVBox(cleanIn, cleanOut), func() bool { return !s.Form.CleanIn && !s.Form.CleanOut })
 
 	f.verdictCap = caption("Verdict")
 	f.verdictText = text("", 15, true, cText)
@@ -124,7 +125,7 @@ func newFichePanel(s *session) *fichePanel {
 
 	gap := func() fyne.CanvasObject { return container.New(&padLayout{v: 4}) }
 	// En-tête fixe (référence, avancement, technicien), le reste défile
-	top := container.New(&padLayout{h: 18, v: 14}, container.NewVBox(header, techRow, gap(), hRule(cLineStrong)))
+	top := container.New(&padLayout{h: 18, v: 14}, container.NewVBox(header, techRow, f.todo, gap(), hRule(cLineStrong)))
 	paper := container.NewVBox(
 		summary, gap(), controls, gap(),
 		sectionTitle("Observations du technicien"), f.pass(notes),
@@ -136,7 +137,47 @@ func newFichePanel(s *session) *fichePanel {
 
 	s.onChange(f.refresh)
 	f.refresh()
+	f.updateRequired()
 	return f
+}
+
+// reqMark champ à remplir : contour et puce tant qu'il est vide
+type reqMark struct {
+	ring  *tRect
+	dot   *pulseDot
+	empty func() bool
+}
+
+// requiredBox cadre d'un champ de la fiche, signalé tant qu'il est vide
+func (f *fichePanel) requiredBox(title string, field fyne.CanvasObject, empty func() bool) fyne.CanvasObject {
+	ring := newRect("", cAccent, 8)
+	ring.StrokeWidth = 2
+	dot := newPulseDot()
+	f.reqs = append(f.reqs, reqMark{ring, dot, empty})
+	head := container.NewHBox(caption(title), container.NewCenter(dot.root))
+	return container.NewStack(box(container.NewVBox(head, field), cLine, cSurface), ring)
+}
+
+// requiredRow ligne de la fiche (libellé et choix), signalée tant qu'elle est vide
+func (f *fichePanel) requiredRow(label string, field fyne.CanvasObject, empty func() bool) fyne.CanvasObject {
+	ring := newRect("", cAccent, 6)
+	ring.StrokeWidth = 2
+	dot := newPulseDot()
+	f.reqs = append(f.reqs, reqMark{ring, dot, empty})
+	return listRow(container.NewHBox(text(label, 13, false, cText), container.NewCenter(dot.root)), container.NewStack(field, ring))
+}
+
+// updateRequired signale chaque champ vide et liste ce qui reste à remplir
+func (f *fichePanel) updateRequired() {
+	for _, r := range f.reqs {
+		e := r.empty()
+		r.ring.Hidden = !e
+		r.ring.Refresh()
+		r.dot.show(e)
+	}
+	missing := f.s.missingInfo()
+	f.todo.Hidden = len(missing) == 0
+	f.todo.SetText(fmt.Sprintf("À remplir (%d) : %s", len(missing), strings.Join(missing, ", ")))
 }
 
 // statusRoles couleurs d'une case OK / Moyen / Nul
@@ -209,8 +250,8 @@ func (f *fichePanel) maintenance() fyne.CanvasObject {
 	form := &f.s.Form
 	for _, m := range maintRows {
 		v := m.Value(form)
-		bar := newChoiceBar(m.Opts, *v, false, nil, func(x string) { *v = x })
-		list.Add(listRow(text(m.Short, 13, false, cText), container.New(&widthLayout{w: float32(52 * len(m.Opts))}, bar.root)))
+		bar := newChoiceBar(m.Opts, *v, false, nil, func(x string) { *v = x; f.updateRequired() })
+		list.Add(f.requiredRow(m.Short, container.New(&widthLayout{w: float32(52 * len(m.Opts))}, bar.root), func() bool { return *v == "" }))
 	}
 	return list
 }

@@ -73,30 +73,43 @@ func ListDisks() ([]string, error) {
 	diskNames := make([]string, 0, len(entries))
 
 	for _, entry := range entries {
-		name := entry.Name()
-
-		// Filtrer périphériques virtuels en premier (plus rapide)
-		if strings.HasPrefix(name, "loop") ||
-			strings.HasPrefix(name, "zram") ||
-			strings.HasPrefix(name, "ram") {
-			continue
-		}
-
-		// Vérifier si c'est un symlink pointant vers un répertoire
-		if entry.Type()&os.ModeSymlink != 0 {
-			fullPath := filepath.Join(pathRoot, name)
-			info, err := os.Stat(fullPath)
-			if err != nil || !info.IsDir() {
-				continue
-			}
-			diskNames = append(diskNames, name)
-		} else if entry.IsDir() {
-			// Cas où ce serait un répertoire direct (rare dans /sys/block/)
-			diskNames = append(diskNames, name)
+		if IsInternalDisk(filepath.Join(pathRoot, entry.Name())) {
+			diskNames = append(diskNames, entry.Name())
 		}
 	}
 
 	return diskNames, nil
+}
+
+// IsInternalDisk vrai pour un disque de la machine : ni clé ou disque USB, ni
+// carte SD, ni lecteur optique, ni disque virtuel. Une clé USB se déclare
+// souvent « rotative » et passerait sinon pour un disque dur.
+func IsInternalDisk(dir string) bool {
+	name := filepath.Base(dir)
+	for _, p := range []string{"loop", "ram", "zram", "sr", "dm-", "md", "fd", "nbd"} {
+		if strings.HasPrefix(name, p) {
+			return false
+		}
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return false
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "removable")); strings.TrimSpace(string(b)) == "1" {
+		return false
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err == nil && (strings.Contains(real, "/usb") || strings.Contains(real, "/firewire")) {
+		return false
+	}
+	if strings.HasPrefix(name, "mmcblk") {
+		// eMMC soudée seulement : ni carte SD, ni zones boot et rpmb de l'eMMC
+		if strings.Contains(name, "boot") || strings.Contains(name, "rpmb") {
+			return false
+		}
+		typ, _ := os.ReadFile(filepath.Join(dir, "device", "type"))
+		return strings.TrimSpace(string(typ)) == "MMC"
+	}
+	return true
 }
 
 func listPartitions(diskName string) ([]string, error) {
