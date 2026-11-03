@@ -71,6 +71,19 @@ func TestKeyboardDesktopModel(t *testing.T) {
 	if !m.pressed[121] || !m.present[123] {
 		t.Fatal("muet d'un clavier filaire non pris en compte")
 	}
+	// touches relevées sur un Dell KB216 : pistes, recherche, veille
+	for _, c := range []int{171, 173, 225, 150} {
+		if !m.known(c) {
+			t.Fatalf("code %d absent du plan", c)
+		}
+	}
+	m.press(171) // piste suivante : les trois touches de lecture apparaissent
+	if !m.present[172] || !m.present[173] || m.present[150] {
+		t.Fatal("pistes : apparaissent ensemble, sans la veille")
+	}
+	if m.known(232) {
+		t.Fatal("pas de luminosité sur un clavier de bureau")
+	}
 }
 
 func TestHasKeyBits(t *testing.T) {

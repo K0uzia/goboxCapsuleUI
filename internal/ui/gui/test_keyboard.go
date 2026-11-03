@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"fyne.io/fyne/v2"
@@ -27,7 +29,7 @@ const (
 	secNav    = "nav"    // Impr, Inser, Début, Fin, pages, Suppr
 	secArrows = "arrows" // flèches
 	secPad    = "pad"    // pavé numérique
-	secMedia  = "media"  // son, lecture, luminosité
+	secMedia  = "media"  // veille, recherche, pistes, son, luminosité
 )
 
 // keyDef touche physique identifiée par son code X11 (indépendant de la
@@ -64,14 +66,17 @@ func row(sec string, y, x float32, keys ...kd) []keyDef {
 	return out
 }
 
-// Touches multimédia (codes X11) : seulement si on appuie dessus
+// Touches multimédia et de veille (codes X11), dans l'ordre de leur rangée :
+// seulement si on appuie dessus. Relevées sur un Dell KB216 et des portables.
 var mediaKeys = []struct {
 	code  int
 	label string
 	group string
 }{
+	{150, "Veille", ""}, {225, "Rech.", ""},
+	{173, "Préc", "piste"}, {172, "Lect", "piste"}, {171, "Suiv", "piste"},
 	{121, "Muet", "audio"}, {122, "Vol−", "audio"}, {123, "Vol+", "audio"},
-	{172, "Lect", ""}, {232, "Lum−", "lum"}, {233, "Lum+", "lum"},
+	{232, "Lum−", "lum"}, {233, "Lum+", "lum"},
 }
 
 // keyboardPlan plan ISO 105 touches et touches multimédia. Le système ne dit pas
@@ -103,20 +108,21 @@ func keyboardPlan(laptop bool) []keyDef {
 	add(row(secPad, 4.25, 19, same(87, "1", 1), same(88, "2", 1), same(89, "3", 1))...)
 	add(keyDef{Code: 104, Azerty: "⏎", Qwerty: "⏎", X: 22, Y: 4.25, W: 1, H: 2, Sec: secPad})
 	add(row(secPad, 5.25, 19, same(90, "0", 2), same(91, ".", 1))...)
-	// son et lecture au-dessus du pavé ; luminosité (portable) sous la navigation
-	x := float32(19)
-	for _, m := range mediaKeys {
-		k := keyDef{Code: m.code, Azerty: m.label, Qwerty: m.label, X: x, Y: 0, W: 1, H: 1, Sec: secMedia, Group: m.group, Off: true}
-		if m.group == "lum" {
-			if !laptop {
-				continue // la luminosité ne se règle pas depuis un clavier de bureau
-			}
-			k.X, k.Y = 16+float32(m.code-232), 3.25
-		} else {
-			x++
-		}
-		add(k)
+	// Rangée multimédia tout en haut, alignée à droite ; le reste descend d'un rang
+	for i := range ks {
+		ks[i].Y += mediaRow
 	}
+	var media []keyDef
+	for _, m := range mediaKeys {
+		if m.group == "lum" && !laptop {
+			continue // la luminosité ne se règle pas depuis un clavier de bureau
+		}
+		media = append(media, keyDef{Code: m.code, Azerty: m.label, Qwerty: m.label, Y: 0, W: 1, H: 1, Sec: secMedia, Group: m.group, Off: true})
+	}
+	for i := range media {
+		media[i].X = keyboardCols - float32(len(media)-i)
+	}
+	add(media...)
 	for i := range ks {
 		switch {
 		case ks[i].Sec == secPad:
@@ -131,8 +137,9 @@ func keyboardPlan(laptop bool) []keyDef {
 }
 
 const (
-	keyboardCols = 23   // largeur du plan, en touches
-	keyboardRows = 6.25 // hauteur du plan, en touches
+	keyboardCols = 23              // largeur du plan, en touches
+	mediaRow     = 1.25            // hauteur de la rangée multimédia, au-dessus d'Échap
+	keyboardRows = 6.25 + mediaRow // hauteur du plan, en touches
 )
 
 const sysInput = "/sys/class/input"
@@ -457,7 +464,7 @@ func runKeyboard(t *testCtx) result {
 		repaint(all()...)
 		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { pressFrom("la fenêtre", ev.Physical.ScanCode, string(ev.Name), press) })
 		head := container.NewVBox(container.NewHBox(counter, container.NewCenter(kindText)), padText)
-		hint := mutedNote("Appuyez sur chaque touche, Fn compris : une fonction obtenue avec Fn (Impr, volume, luminosité) s'allume à part. " +
+		hint := mutedNote("Appuyez sur chaque touche, Fn compris : une fonction obtenue avec Fn (Impr, volume, luminosité) s'allume à part. La touche de veille ne met pas le PC en veille pendant le test. " +
 			"Pavé numérique et touches multimédia apparaissent au premier appui. Touche grisée : absente, elle ne compte pas ; un clic la retire ou la remet.")
 		return container.NewVBox(head, plan, hint, trap)
 	})
@@ -470,6 +477,15 @@ func runKeyboard(t *testCtx) result {
 			t.log("Touches lues directement sur : %s", strings.Join(names, ", "))
 		} else {
 			t.log("Lecture directe des claviers impossible (droits sur /dev/input ?)")
+		}
+	}
+
+	// La touche de veille doit pouvoir se tester sans endormir le PC
+	if !simulated && manageSuperKey {
+		release, ok := inhibitSleepKeys()
+		defer release()
+		if !ok {
+			t.log("Touche de veille non neutralisée (systemd-inhibit indisponible) : ne pas l'appuyer")
 		}
 	}
 
@@ -653,4 +669,23 @@ func restoreSuperKey() {
 	for _, f := range undo {
 		f()
 	}
+}
+
+// inhibitSleepKeys retire au système les touches de veille et d'hibernation le
+// temps du test (verrou systemd-inhibit, levé à l'arrêt du processus, rien
+// n'est écrit). Le bureau ne les reçoit pas non plus : le clavier est capturé.
+// Rend la levée du verrou ; ok faux si le verrou n'a pas été pris.
+func inhibitSleepKeys() (release func(), ok bool) {
+	tool := toolPath("systemd-inhibit")
+	if tool == "" {
+		return func() {}, false
+	}
+	cmd := exec.Command(tool, "--what=handle-suspend-key:handle-hibernate-key", "--who=gobox",
+		"--why=Test du clavier", "--mode=block", "sleep", "infinity")
+	setpgidOnly(cmd)
+	if err := cmd.Start(); err != nil {
+		return func() {}, false
+	}
+	time.Sleep(150 * time.Millisecond) // le verrou est pris avant le premier appui
+	return func() { stopProcess(cmd) }, true
 }
