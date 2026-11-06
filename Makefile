@@ -77,12 +77,13 @@ endif
 # + compilateur C et bibliothèques OpenGL/X11 pour l'interface graphique (Fyne).
 # Linux : le gestionnaire de paquets est détecté, dnf (Rocky/RHEL/Fedora) ou
 # apt (Debian/Mint). xrandr n'existe plus dans les dépôts RHEL 10.
-DNF_PACKAGES := curl pciutils dmidecode smartmontools stress-ng \
+# podman : conteneur de `make build` (uidmap pour le lancer sans root).
+DNF_PACKAGES := curl pciutils dmidecode smartmontools stress-ng podman \
                 gcc pkgconf-pkg-config mesa-libGL-devel mesa-libEGL-devel \
                 libX11-devel libXext-devel libXcursor-devel libXrandr-devel \
                 libXinerama-devel libXi-devel libXxf86vm-devel \
                 wayland-devel libxkbcommon-devel
-APT_PACKAGES := curl pciutils dmidecode smartmontools x11-xserver-utils stress-ng \
+APT_PACKAGES := curl pciutils dmidecode smartmontools x11-xserver-utils stress-ng podman uidmap \
                 gcc pkg-config libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev \
                 xorg-dev libwayland-dev libxkbcommon-dev
 
