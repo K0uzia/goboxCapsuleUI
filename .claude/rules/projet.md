@@ -133,6 +133,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 - Claude tient ce mode d'emploi à jour seul, à chaque décision ou erreur, sans demander de validation ; il lit le mode d'emploi avant de proposer une solution (demande de l'humain, 2026-10-30).
 - Aucune donnée propre à un PC ou à un technicien n'est enregistrée localement (`fyne.Preferences` exclu) : image live partagée.
 - Toute règle de comptage des prises (USB, vidéo) se fonde sur un relevé réel, au moins un portable et une tour : diagnostic d'À propos et prises comptées à la main. Le relevé est rangé dans `internal/ui/gui/testdata/` avec un test qui vérifie le compte attendu.
+- Tout outil appelé par une cible `make` est installé par `make deps`.
 - P1 : `docs/todo/*.md` utilise des emoji et des tirets cadratin (contraire à `web-method` « Tirets ») : à traiter seulement si l'humain le demande.
 - `Tracebay-neuf` : autre clone du même dépôt GitHub que `Tracebay` (`K0uzia/Tracebay`), avec des branches plus récentes (3.7.2 à 3.8.3) (constaté : `git remote`, `git branch` le 2026-10-27). Consulté seulement pour comparer une fonction avec `Tracebay`.
 
@@ -165,4 +166,5 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-11-03 | Stockage plus détecté après le filtre des clés USB | l'attribut removable, que le noyau met aussi sur un disque SATA interne dont le port est « branchable à chaud » | filtre par le chemin du bus seulement (test `TestIsInternalDisk`), valeurs brutes des disques et de la batterie dans le diagnostic d'À propos |
 | 2026-11-03 | Batterie plus détectée (cause non reproduite sur le poste de développement, sans batterie) | non établie : détection resserrée sur le type « Battery » | repli sur le nom BAT* si le type est illisible ; diagnostic d'À propos à relever sur un portable |
 | 2026-11-06 | Tours et mini-tours : prises USB 2.0 affichées en trop, 2 DisplayPort annoncés pour 1 réel (signalé par l'humain) | détection des prises réglée sur un seul portable (HP EliteBook 850 G3), jamais vérifiée sur une tour | relevé réel portable et tour, avec test, pour toute règle de comptage (« Règles propres au projet ») |
+| 2026-11-06 | `make deps` n'installait pas podman, `make build` échouait (signalé par l'humain) | conteneur de compilation ajouté à `make build` le 2026-10-30 sans mettre à jour `make deps` | outils des cibles `make` installés par `make deps` (« Règles propres au projet ») |
 | 2026-10-28 | Défilement de la fiche bloqué quand le pointeur passe sur un champ de saisie (signalé par l'humain) | défilement interne des champs Fyne qui garde la molette ; aucun test de défilement | couche de renvoi de la molette et test automatique (« Règles propres au projet ») |
