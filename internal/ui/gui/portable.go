@@ -205,22 +205,37 @@ func keyboardReport() string {
 	return b.String()
 }
 
+// portLocation emplacement ACPI d'un port (usb1-port3) : les deux moitiés d'une
+// prise USB 3 ont le même
+func portLocation(name string) string {
+	found, _ := filepath.Glob(filepath.Join(sysUSB, "*", "*:1.0", name, "location"))
+	if len(found) == 0 {
+		return "?"
+	}
+	return readTrim(found[0])
+}
+
 // usbReport détail des prises USB, du Type-C et de la liste du BIOS
 func usbReport() string {
 	var b strings.Builder
 	phys := readPhysicalPorts()
 	ports := readUSBPorts()
 	ports.typeC = max(ports.typeC, phys.USBC)
+	fmt.Fprintf(&b, "PC de bureau : %v (châssis %q)\n", isDesktop(), readTrim("/sys/class/dmi/id/chassis_type"))
 	fmt.Fprintf(&b, "USB : %v, total %d (BIOS : %d)\n", ports.kindTotals(), ports.total, phys.BIOSUSB)
 	typeC, _ := filepath.Glob("/sys/class/typec/*")
 	thunderbolt, _ := filepath.Glob("/sys/bus/thunderbolt/devices/domain*")
 	fmt.Fprintf(&b, "Type-C : %d entrée(s) dans /sys/class/typec, BIOS %d, thunderbolt %d\n", len(typeC), phys.USBC, len(thunderbolt))
 	var lines []string
 	for name, key := range ports.group {
-		lines = append(lines, fmt.Sprintf("  %s : prise %s, %s", name, key, ports.kindOf(key)))
+		lines = append(lines, fmt.Sprintf("  %s : prise %s, %s (location %s)", name, key, ports.kindOf(key), portLocation(name)))
 	}
-	for name := range ports.possible {
-		lines = append(lines, fmt.Sprintf("  %s : non renseigné par le BIOS", name))
+	for name, key := range ports.possible {
+		why := "non renseigné par le BIOS"
+		if ports.unsure[key] {
+			why = "USB 2.0 de PC de bureau, compté au branchement"
+		}
+		lines = append(lines, fmt.Sprintf("  %s : %s (%s, location %s)", name, why, key, portLocation(name)))
 	}
 	sort.Strings(lines)
 	b.WriteString(strings.Join(lines, "\n") + "\n\n")
@@ -240,7 +255,7 @@ func usbReport() string {
 	for _, c := range conns {
 		fmt.Fprintf(&b, "  %s (%s) connecté %v\n", c.Name, c.Plug, c.Connected)
 	}
-	fmt.Fprintf(&b, "\nPrises vidéo retenues : %v\nTable Intel : %v\n", phys.Video, readVBTPorts())
+	fmt.Fprintf(&b, "\nPrises vidéo retenues : %v (%s)\nAnnoncées par le BIOS ou la table Intel : %v\nTable Intel : %v\n", phys.Video, phys.Why, phys.Declared, readVBTPorts())
 	if tool := toolPath("dmidecode"); tool != "" {
 		out, err := exec.Command(tool, "-t", "8").CombinedOutput()
 		if err != nil {

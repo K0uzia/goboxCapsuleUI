@@ -236,6 +236,7 @@ func internalDisks() []blockDisk {
 type usbPorts struct {
 	group    map[string]string // nom du port sysfs (usb1-port3, 1-4-port2) → prise
 	possible map[string]string // type non renseigné : prise seulement si on y branche
+	unsure   map[string]bool   // prises USB 2.0 d'un PC de bureau, dans possible
 	kinds    map[string]string // prise → USB 2.0, USB 3.x ou USB-C
 	typeC    int               // ports de /sys/class/typec
 	total    int
@@ -307,15 +308,27 @@ func (p usbPorts) kindTotals() map[string]int {
 	return out
 }
 
+// isDesktop vrai sur un PC de bureau (tour, mini-tour, tout-en-un)
+func isDesktop() bool { return !isLaptop("/sys/class/dmi/id", sysPower) }
+
 // readUSBPorts lit les ports déclarés par le microprogramme (ACPI). La liste du
 // BIOS (DMI) n'en donne jamais le nombre : elle compte souvent les ports du
 // chipset, câblés ou non, et annonce plus de prises qu'il n'y en a.
 func readUSBPorts() usbPorts {
-	p := usbPorts{group: map[string]string{}, possible: map[string]string{}, kinds: map[string]string{}}
 	typeC, _ := filepath.Glob("/sys/class/typec/port?")
+	p := readUSBPortsAt(sysUSB, isDesktop())
 	p.typeC = len(typeC)
+	return p
+}
+
+// readUSBPortsAt lit les ports sous root (/sys/bus/usb/devices). Sur un PC de
+// bureau, le microprogramme déclare branchables tous les ports USB 2.0 du
+// chipset, connecteurs internes et façade non câblée compris : une prise USB 2.0
+// n'y compte qu'au premier branchement, ou déjà occupée à l'ouverture du test.
+func readUSBPortsAt(root string, desktop bool) usbPorts {
+	p := usbPorts{group: map[string]string{}, possible: map[string]string{}, unsure: map[string]bool{}, kinds: map[string]string{}}
 	// concentrateurs : contrôleurs (usbN), et hubs branchés sur un port câblé
-	hubs, _ := filepath.Glob(filepath.Join(sysUSB, "usb*"))
+	hubs, _ := filepath.Glob(filepath.Join(root, "usb*"))
 	for len(hubs) > 0 {
 		hub := hubs[0]
 		hubs = hubs[1:]
@@ -335,8 +348,8 @@ func readUSBPorts() usbPorts {
 			case "not used":
 			case "hardwired":
 				// un hub interne derrière ce port porte peut-être les prises
-				if dev := usbDeviceOnPort(name); dev != "" && readTrim(filepath.Join(sysUSB, dev, "bDeviceClass")) == "09" {
-					hubs = append(hubs, filepath.Join(sysUSB, dev))
+				if dev := usbDeviceOnPort(name); dev != "" && readTrim(filepath.Join(root, dev, "bDeviceClass")) == "09" {
+					hubs = append(hubs, filepath.Join(root, dev))
 				}
 			case "hotplug":
 				p.group[name] = key
@@ -345,8 +358,25 @@ func readUSBPorts() usbPorts {
 			}
 		}
 	}
+	if desktop {
+		for name, k := range p.group {
+			if p.kindOf(k) == usbKind2 {
+				p.possible[name], p.unsure[k] = k, true
+				delete(p.group, name)
+			}
+		}
+	}
 	p.finish()
 	return p
+}
+
+// adoptUnsure périphérique déjà branché à l'ouverture du test sur une prise
+// USB 2.0 d'un PC de bureau : la prise existe. Rend la prise, "" sinon.
+func (p *usbPorts) adoptUnsure(dev string) string {
+	if !p.unsure[lookupPort(p.possible, dev)] {
+		return ""
+	}
+	return p.adopt(dev)
 }
 
 // finish compte les prises : la moitié USB 3 non renseignée d'une prise connue
@@ -541,15 +571,20 @@ func usbDevices() map[string]string {
 // physicalPorts prises de la machine. La liste du BIOS (DMI type 8) décrit la
 // carte mère, puis la table Intel (vbt.go). Sans elles, les connecteurs d'une carte
 // AMD ou NVIDIA sont fiables ; pas ceux d'Intel : un même processeur déclare les
-// mêmes sur tout PC.
+// mêmes sur tout PC. Sur un PC de bureau, le BIOS et la table Intel déclarent aussi
+// les emplacements optionnels (module vidéo vendu en option) : seule la carte
+// AMD ou NVIDIA compte.
 type physicalPorts struct {
 	Video    map[string]int // type → nombre de prises ; vide : nombre inconnu
+	Declared map[string]int // prises annoncées par le BIOS ou la table Intel, pour le diagnostic
 	USBC     int            // prises USB-C listées par le BIOS
 	Why      string         // pourquoi le nombre est inconnu
 	USB      int            // < 0 : nombre inconnu
 	BIOSUSB  int            // prises USB listées par le BIOS, pour le diagnostic seulement
 	USBKinds map[string]int // type de prise USB → nombre
 }
+
+const whyDesktopVideo = "PC de bureau : le BIOS annonce aussi les prises vendues en option"
 
 // toolPath chemin d'un outil système : /usr/sbin n'est pas toujours dans le PATH
 // (Mint, ou lancé sans sudo)
@@ -593,12 +628,16 @@ func readPhysicalPorts() physicalPorts {
 	if len(video) == 0 {
 		video = readVBTPorts()
 	}
+	declared := video
+	if isDesktop() && len(video) > 0 {
+		video, why = nil, whyDesktopVideo
+	}
 	if len(video) == 0 {
 		video = gpuPorts(videoConnectors(), cardDrivers())
 	}
 	ports := readUSBPorts()
 	ports.typeC = max(ports.typeC, usbC)
-	return physicalPorts{Video: video, USBC: usbC, Why: why, USB: ports.total, BIOSUSB: usb, USBKinds: ports.kindTotals()}
+	return physicalPorts{Video: video, Declared: declared, USBC: usbC, Why: why, USB: ports.total, BIOSUSB: usb, USBKinds: ports.kindTotals()}
 }
 
 // loadTypeCDriver charge le pilote qui révèle les prises USB-C (en mémoire seulement,

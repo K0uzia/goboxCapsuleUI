@@ -151,7 +151,11 @@ func runPorts(t *testCtx) result {
 	usbTested := map[string]bool{}
 	known := usbDevices()
 	for dev := range known {
-		if port := usb.portOf(dev); port != "" {
+		port := usb.portOf(dev)
+		if port == "" {
+			port = usb.adoptUnsure(dev)
+		}
+		if port != "" {
 			usbTested[port] = true
 		}
 	}

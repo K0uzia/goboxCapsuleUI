@@ -3,7 +3,7 @@
 - depot: goboxCapsuleUI
 - type: à confirmer (proposé : logiciel-bureau, ajouté au kit après l'étape 1)
 - statut: validé le 2026-10-28
-- mise à jour: 2026-11-03
+- mise à jour: 2026-11-06
 
 Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `web-*` ne s'appliquent que pour leurs principes d'interface (voir « Modèle à respecter »). Ce fichier ne contient que ce qui est propre au projet.
 
@@ -85,6 +85,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-11-03 | Fiche : technicien, aspect et nettoyage vides au départ, signalés et listés « À remplir », rappelés par PRINT ; les quatre choix de maintenance (pâte, shred, pile, DVD) sur « non » par défaut | demande de l'humain |
 | 2026-11-03 | Écran de résultat : « Valider ce résultat » à la place de « Retour au menu » | les techniciens cliquaient sur « Retour au menu » en croyant ne pas valider |
 | 2026-11-03 | MAJ : barre de progression arrêtée et consigne « En attente de votre accord » jusqu'au clic sur « Lancer la mise à jour » | le technicien attendait en croyant la mise à jour lancée |
+| 2026-11-06 | PC de bureau (châssis non portable) : une prise USB 2.0 seule ne compte qu'une fois utilisée (déjà occupée à l'ouverture du test ou branchée pendant) ; le nombre de sorties vidéo du BIOS et de la table Intel n'est plus repris (« nombre de prises non lu », chaque sortie apparaît au branchement), seule une carte AMD ou NVIDIA donne un nombre. À confirmer par un test sur tour de l'humain | sur tour, le microprogramme déclare les connecteurs internes, la façade non câblée et la sortie vidéo vendue en option (signalé par l'humain : USB 2.0 en trop, 2 DisplayPort pour 1) |
 | 2026-10-27 | Tracebay-Autonome (tout sur un poste, système de licence) : source principale pour la logique ; Tracebay (serveur séparé sur le réseau) : source pour le fonctionnement en réseau | réponse d'interview |
 
 ## Modèle à respecter
@@ -131,6 +132,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 - Avant de coder : lire `../kouzia-boite-a-outils/INDEX.md`, et dire tout de suite à l'humain si le dossier manque. Toute brique réutilisable créée ici alimente la boîte (socle `go-fyne`) (demande de l'humain, 2026-10-30).
 - Claude tient ce mode d'emploi à jour seul, à chaque décision ou erreur, sans demander de validation ; il lit le mode d'emploi avant de proposer une solution (demande de l'humain, 2026-10-30).
 - Aucune donnée propre à un PC ou à un technicien n'est enregistrée localement (`fyne.Preferences` exclu) : image live partagée.
+- Toute règle de comptage des prises (USB, vidéo) se fonde sur un relevé réel, au moins un portable et une tour : diagnostic d'À propos et prises comptées à la main. Le relevé est rangé dans `internal/ui/gui/testdata/` avec un test qui vérifie le compte attendu.
 - P1 : `docs/todo/*.md` utilise des emoji et des tirets cadratin (contraire à `web-method` « Tirets ») : à traiter seulement si l'humain le demande.
 - `Tracebay-neuf` : autre clone du même dépôt GitHub que `Tracebay` (`K0uzia/Tracebay`), avec des branches plus récentes (3.7.2 à 3.8.3) (constaté : `git remote`, `git branch` le 2026-10-27). Consulté seulement pour comparer une fonction avec `Tracebay`.
 
@@ -162,4 +164,5 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-11-03 | Fiche à « 0 testé, 0 défectueux » après un port USB essayé | prise morte invisible pour le système, et clé sur un port non déclaré ignorée | « Sans réaction » et adoption du port au branchement (test `TestUSBAdoptUnlistedPort`) |
 | 2026-11-03 | Stockage plus détecté après le filtre des clés USB | l'attribut removable, que le noyau met aussi sur un disque SATA interne dont le port est « branchable à chaud » | filtre par le chemin du bus seulement (test `TestIsInternalDisk`), valeurs brutes des disques et de la batterie dans le diagnostic d'À propos |
 | 2026-11-03 | Batterie plus détectée (cause non reproduite sur le poste de développement, sans batterie) | non établie : détection resserrée sur le type « Battery » | repli sur le nom BAT* si le type est illisible ; diagnostic d'À propos à relever sur un portable |
+| 2026-11-06 | Tours et mini-tours : prises USB 2.0 affichées en trop, 2 DisplayPort annoncés pour 1 réel (signalé par l'humain) | détection des prises réglée sur un seul portable (HP EliteBook 850 G3), jamais vérifiée sur une tour | relevé réel portable et tour, avec test, pour toute règle de comptage (« Règles propres au projet ») |
 | 2026-10-28 | Défilement de la fiche bloqué quand le pointeur passe sur un champ de saisie (signalé par l'humain) | défilement interne des champs Fyne qui garde la molette ; aucun test de défilement | couche de renvoi de la molette et test automatique (« Règles propres au projet ») |

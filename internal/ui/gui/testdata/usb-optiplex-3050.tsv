@@ -1,0 +1,19 @@
+# port	vitesse du bus	connect_type	peer	location
+usb1-port1	480	hotplug	usb2-port1	0x80000001
+usb1-port10	480	unknown		0x80000012
+usb1-port11	480	not used		0x80000000
+usb1-port12	480	not used		0x80000000
+usb1-port2	480	hotplug	usb2-port2	0x80000003
+usb1-port3	480	hotplug	usb2-port6	0x80000005
+usb1-port4	480	hotplug	usb2-port3	0x80000006
+usb1-port5	480	hotplug	usb2-port4	0x80000009
+usb1-port6	480	unknown		0x8000000b
+usb1-port7	480	hotplug	usb2-port5	0x8000000d
+usb1-port8	480	unknown		0x8000000e
+usb1-port9	480	not used		0x80000010
+usb2-port1	5000	hotplug	usb1-port1	0x80000001
+usb2-port2	5000	hotplug	usb1-port2	0x80000003
+usb2-port3	5000	hotplug	usb1-port4	0x80000006
+usb2-port4	5000	hotplug	usb1-port5	0x80000009
+usb2-port5	5000	unknown	usb1-port7	0x8000000d
+usb2-port6	5000	unknown	usb1-port3	0x80000005
