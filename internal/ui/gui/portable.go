@@ -233,9 +233,26 @@ func usbReport() string {
 	for name, key := range ports.possible {
 		why := "non renseigné par le BIOS"
 		if ports.unsure[key] {
-			why = "USB 2.0 de PC de bureau, compté au branchement"
+			why = "USB 2.0 seule, comptée au branchement"
 		}
 		lines = append(lines, fmt.Sprintf("  %s : %s (%s, location %s)", name, why, key, portLocation(name)))
+	}
+	// ports écartés (non câblés, internes) : sans eux, un relevé ne se rejoue pas en test
+	all, _ := filepath.Glob(filepath.Join(sysUSB, "*", "*:1.0", "*-port*"))
+	for _, port := range all {
+		name := filepath.Base(port)
+		if _, ok := ports.group[name]; ok {
+			continue
+		}
+		if _, ok := ports.possible[name]; ok {
+			continue
+		}
+		peer := ""
+		if link, err := os.Readlink(filepath.Join(port, "peer")); err == nil {
+			peer = filepath.Base(link)
+		}
+		lines = append(lines, fmt.Sprintf("  %s : écarté, connect_type %q, peer %q (location %s)", name,
+			readTrim(filepath.Join(port, "connect_type")), peer, readTrim(filepath.Join(port, "location"))))
 	}
 	sort.Strings(lines)
 	b.WriteString(strings.Join(lines, "\n") + "\n\n")
@@ -250,7 +267,7 @@ func usbReport() string {
 			b.WriteString("\nPCI :\n" + string(out))
 		}
 	}
-	conns := videoConnectors()
+	conns := vgaBridges(videoConnectors(), phys.Video)
 	b.WriteString("\nConnecteurs vidéo :\n")
 	for _, c := range conns {
 		fmt.Fprintf(&b, "  %s (%s) connecté %v\n", c.Name, c.Plug, c.Connected)

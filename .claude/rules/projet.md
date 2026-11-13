@@ -3,7 +3,7 @@
 - depot: goboxCapsuleUI
 - type: à confirmer (proposé : logiciel-bureau, ajouté au kit après l'étape 1)
 - statut: validé le 2026-10-28
-- mise à jour: 2026-11-06
+- mise à jour: 2026-11-13
 
 Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `web-*` ne s'appliquent que pour leurs principes d'interface (voir « Modèle à respecter »). Ce fichier ne contient que ce qui est propre au projet.
 
@@ -86,6 +86,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-11-03 | Écran de résultat : « Valider ce résultat » à la place de « Retour au menu » | les techniciens cliquaient sur « Retour au menu » en croyant ne pas valider |
 | 2026-11-03 | MAJ : barre de progression arrêtée et consigne « En attente de votre accord » jusqu'au clic sur « Lancer la mise à jour » | le technicien attendait en croyant la mise à jour lancée |
 | 2026-11-06 | PC de bureau (châssis non portable) : une prise USB 2.0 seule ne compte qu'une fois utilisée (déjà occupée à l'ouverture du test ou branchée pendant) ; le nombre de sorties vidéo du BIOS et de la table Intel n'est plus repris (« nombre de prises non lu », chaque sortie apparaît au branchement), seule une carte AMD ou NVIDIA donne un nombre. À confirmer par un test sur tour de l'humain | sur tour, le microprogramme déclare les connecteurs internes, la façade non câblée et la sortie vidéo vendue en option (signalé par l'humain : USB 2.0 en trop, 2 DisplayPort pour 1) |
+| 2026-11-13 | Toute machine (étend la décision du 2026-11-06) : une prise USB 2.0 seule ne compte qu'une fois utilisée. Prise VGA vue DisplayPort par la carte Intel (pont DP vers VGA) : quand le BIOS annonce du VGA sans DisplayPort et que la carte n'a aucun connecteur VGA, ses connecteurs DisplayPort sont la prise VGA | relevé réel d'un Dell Latitude 3550 (signalé par les techniciens) : 7 USB 2.0 annoncées pour 0 (ports du contrôleur EHCI et du xHCI sans prise), VGA compté DisplayPort |
 | 2026-10-27 | Tracebay-Autonome (tout sur un poste, système de licence) : source principale pour la logique ; Tracebay (serveur séparé sur le réseau) : source pour le fonctionnement en réseau | réponse d'interview |
 
 ## Modèle à respecter
@@ -167,4 +168,5 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-11-03 | Batterie plus détectée (cause non reproduite sur le poste de développement, sans batterie) | non établie : détection resserrée sur le type « Battery » | repli sur le nom BAT* si le type est illisible ; diagnostic d'À propos à relever sur un portable |
 | 2026-11-06 | Tours et mini-tours : prises USB 2.0 affichées en trop, 2 DisplayPort annoncés pour 1 réel (signalé par l'humain) | détection des prises réglée sur un seul portable (HP EliteBook 850 G3), jamais vérifiée sur une tour | relevé réel portable et tour, avec test, pour toute règle de comptage (« Règles propres au projet ») |
 | 2026-11-06 | `make deps` n'installait pas podman, `make build` échouait (signalé par l'humain) | conteneur de compilation ajouté à `make build` le 2026-10-30 sans mettre à jour `make deps` | outils des cibles `make` installés par `make deps` (« Règles propres au projet ») |
+| 2026-11-13 | Dell Latitude 3550 : prises USB 2.0 en trop, prise VGA comptée DisplayPort (signalé par les techniciens) | règle USB 2.0 du 2026-11-06 limitée aux tours alors que le microprogramme d'un portable déclare aussi des ports sans prise ; pont DP vers VGA jamais relevé | règle « relevé réel » appliquée (`testdata/usb-latitude-3550.tsv`, tests `TestUSBLatitude3550` et `TestVGABridge`) ; diagnostic d'À propos complété des ports écartés pour que le prochain relevé se rejoue en entier |
 | 2026-10-28 | Défilement de la fiche bloqué quand le pointeur passe sur un champ de saisie (signalé par l'humain) | défilement interne des champs Fyne qui garde la molette ; aucun test de défilement | couche de renvoi de la molette et test automatique (« Règles propres au projet ») |

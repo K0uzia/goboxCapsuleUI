@@ -114,6 +114,7 @@ func runPorts(t *testCtx) result {
 		phys.Video = map[string]int{"HDMI": 1, "VGA": 1}
 		conns = []videoConnector{{Name: "HDMI-A-1", Type: "HDMI", Plug: "HDMI"}, {Name: "VGA-1", Type: "VGA", Plug: "VGA"}, {Name: "eDP-1", Type: internalScreen, Plug: internalScreen, Connected: true, Mode: "1920x1080"}}
 	}
+	conns = vgaBridges(conns, phys.Video)
 	videoKnown := len(phys.Video) > 0
 
 	// Prises défectueuses : surintensité déjà comptée, puis erreurs du noyau à
@@ -407,7 +408,7 @@ func runPorts(t *testCtx) result {
 					t.log("USB : %s, prise %s testée", name, usb.kindOf(port))
 				}
 			}
-			for _, c := range videoConnectors() {
+			for _, c := range vgaBridges(videoConnectors(), phys.Video) {
 				if c.Type == internalScreen || !c.Connected {
 					continue
 				}

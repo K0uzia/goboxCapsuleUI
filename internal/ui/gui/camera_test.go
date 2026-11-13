@@ -82,7 +82,10 @@ func usbTree(t *testing.T, file string, change map[string]string) string {
 	root := t.TempDir()
 	dir := func(name string) string {
 		hub, _, _ := strings.Cut(name, "-port")
-		return filepath.Join(root, hub, strings.TrimPrefix(hub, "usb")+"-0:1.0", name)
+		if bus, ok := strings.CutPrefix(hub, "usb"); ok {
+			return filepath.Join(root, hub, bus+"-0:1.0", name)
+		}
+		return filepath.Join(root, hub, hub+":1.0", name) // port d'un hub (1-1-port2)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
 		if strings.HasPrefix(line, "#") {
@@ -99,6 +102,9 @@ func usbTree(t *testing.T, file string, change map[string]string) string {
 		}
 		hub, _, _ := strings.Cut(name, "-port")
 		_ = os.WriteFile(filepath.Join(root, hub, "speed"), []byte(speed+"\n"), 0o644)
+		if !strings.HasPrefix(hub, "usb") {
+			_ = os.WriteFile(filepath.Join(root, hub, "bDeviceClass"), []byte("09\n"), 0o644)
+		}
 		_ = os.WriteFile(filepath.Join(d, "connect_type"), []byte(ctype+"\n"), 0o644)
 		if peer != "" {
 			_ = os.Symlink(dir(peer), filepath.Join(d, "peer"))
@@ -109,22 +115,16 @@ func usbTree(t *testing.T, file string, change map[string]string) string {
 
 // Relevé réel d'un Dell OptiPlex 3050 (PC de bureau) : 6 prises USB 3 déclarées
 // par l'ACPI. Un port USB 2.0 seul déclaré branchable (connecteur interne ou
-// façade non câblée sur une tour) ne compte sur un PC de bureau qu'une fois
-// utilisé ; sur un portable il compte tout de suite.
+// façade non câblée sur une tour) ne compte qu'une fois utilisé.
 func TestUSBDesktopUSB2(t *testing.T) {
 	const file = "testdata/usb-optiplex-3050.tsv"
-	for _, desktop := range []bool{true, false} {
-		p := readUSBPortsAt(usbTree(t, file, nil), desktop)
-		if got := p.kindTotals(); got[usbKind3] != 6 || got[usbKind2] != 0 || got[usbKindC] != 0 || p.total != 6 {
-			t.Errorf("bureau %v : %v, total %d", desktop, got, p.total)
-		}
+	p := readUSBPortsAt(usbTree(t, file, nil))
+	if got := p.kindTotals(); got[usbKind3] != 6 || got[usbKind2] != 0 || got[usbKindC] != 0 || p.total != 6 {
+		t.Errorf("%v, total %d", got, p.total)
 	}
 
 	root := usbTree(t, file, map[string]string{"usb1-port6": "hotplug", "usb1-port8": "hotplug"})
-	if p := readUSBPortsAt(root, false); p.kindTotals()[usbKind2] != 2 || p.total != 8 {
-		t.Errorf("portable : %v, total %d", p.kindTotals(), p.total)
-	}
-	p := readUSBPortsAt(root, true)
+	p = readUSBPortsAt(root)
 	if got := p.kindTotals(); got[usbKind2] != 0 || got[usbKind3] != 6 || p.total != 6 {
 		t.Fatalf("bureau : %v, total %d", got, p.total)
 	}
@@ -136,5 +136,58 @@ func TestUSBDesktopUSB2(t *testing.T) {
 	}
 	if got := p.adopt("1-8"); got != "usb1-port8" || p.total != 8 {
 		t.Errorf("prise branchée pendant le test : %q, total %d", got, p.total)
+	}
+}
+
+// Relevé réel d'un Dell Latitude 3550 (portable) : 3 prises USB 3, aucune USB 2.0.
+// L'ACPI déclare branchables 7 ports USB 2.0 seuls (hub du contrôleur EHCI, ports
+// du xHCI sans moitié USB 3) : aucun ne compte avant d'être utilisé, et les
+// appareils internes (empreinte, Bluetooth, webcam) n'en font pas une prise.
+func TestUSBLatitude3550(t *testing.T) {
+	p := readUSBPortsAt(usbTree(t, "testdata/usb-latitude-3550.tsv", nil))
+	if got := p.kindTotals(); got[usbKind3] != 2 || got[usbKind2] != 0 || got[usbKindC] != 0 || p.total != 2 {
+		t.Fatalf("%v, total %d", got, p.total)
+	}
+	for _, dev := range []string{"1-1", "1-1.4", "1-1.5", "1-1.8"} {
+		if got := p.adoptUnsure(dev); got != "" {
+			t.Errorf("appareil interne %s : prise %q adoptée", dev, got)
+		}
+	}
+	if p.portOf("2-1") != "usb2-port1" {
+		t.Errorf("hub externe sur usb2-port1 : %q", p.portOf("2-1"))
+	}
+	if got := p.adopt("2-3"); got != "usb2-port3" || p.total != 3 {
+		t.Errorf("troisième prise au branchement : %q, total %d", got, p.total)
+	}
+}
+
+// Prise VGA du Latitude 3550 vue DisplayPort par la carte Intel (pont DP vers VGA) :
+// le BIOS annonce 1 HDMI et 1 VGA, la carte DP-1, HDMI-A-1 et HDMI-A-2.
+func TestVGABridge(t *testing.T) {
+	conns := []videoConnector{
+		{Name: "DP-1", Type: "DisplayPort", Plug: "DisplayPort", Connected: true},
+		{Name: "HDMI-A-1", Type: "HDMI", Plug: "HDMI"},
+		{Name: "HDMI-A-2", Type: "HDMI", Plug: "HDMI"},
+		{Name: "eDP-1", Type: internalScreen, Plug: internalScreen, Connected: true},
+	}
+	got := vgaBridges(conns, map[string]int{"HDMI": 1, "VGA": 1})
+	if got[0].Plug != "VGA" || got[1].Plug != "HDMI" || got[3].Plug != internalScreen {
+		t.Fatalf("prises : %+v", got)
+	}
+	if conns[0].Plug != "DisplayPort" {
+		t.Error("liste d'origine modifiée")
+	}
+	for name, ports := range map[string]map[string]int{
+		"DisplayPort annoncé": {"VGA": 1, "DisplayPort": 1},
+		"sans VGA":            {"HDMI": 1},
+		"nombre inconnu":      nil,
+	} {
+		if got := vgaBridges(conns, ports); got[0].Plug != "DisplayPort" {
+			t.Errorf("%s : DP-1 vu %s", name, got[0].Plug)
+		}
+	}
+	native := append([]videoConnector{{Name: "VGA-1", Type: "VGA", Plug: "VGA"}}, conns...)
+	if got := vgaBridges(native, map[string]int{"VGA": 1}); got[1].Plug != "DisplayPort" {
+		t.Error("connecteur VGA natif : le DisplayPort ne doit pas changer")
 	}
 }

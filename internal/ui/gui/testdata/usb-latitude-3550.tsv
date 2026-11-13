@@ -1,0 +1,18 @@
+# Dell Latitude 3550 (portable, Broadwell-U), diagnostic d'À propos du 2026-11-13
+# Prises comptées à la main : 3 USB 3, aucune USB 2.0, 1 HDMI, 1 VGA, aucun DisplayPort.
+# usb1 : contrôleur EHCI ; le hub 1-1 (8087:8001) porte l'empreinte (1-1.4), le Bluetooth (1-1.5) et la webcam (1-1.8).
+# usb1-port1 : déduit hardwired (le hub 1-1 y est branché) ; les ports écartés n'étaient pas dans le diagnostic.
+# port	vitesse du bus	connect_type	peer	location
+usb1-port1	480	hardwired		?
+usb1-port2	480	unknown		0x00000000
+1-1-port1	480	hotplug		0x80000000
+1-1-port2	480	hotplug		0x80000000
+1-1-port6	480	hotplug		0x80000000
+1-1-port7	480	hotplug		0x80000000
+usb2-port1	480	hotplug	usb3-port1	0x80000001
+usb2-port2	480	hotplug	usb3-port2	0x80000002
+usb2-port3	480	hotplug		0x80000003
+usb2-port9	480	hotplug		0x80000009
+usb2-port10	480	hotplug		0x8000000a
+usb3-port1	5000	hotplug	usb2-port1	0x80000001
+usb3-port2	5000	hotplug	usb2-port2	0x80000002

@@ -236,7 +236,7 @@ func internalDisks() []blockDisk {
 type usbPorts struct {
 	group    map[string]string // nom du port sysfs (usb1-port3, 1-4-port2) → prise
 	possible map[string]string // type non renseigné : prise seulement si on y branche
-	unsure   map[string]bool   // prises USB 2.0 d'un PC de bureau, dans possible
+	unsure   map[string]bool   // prises USB 2.0 seules, dans possible : comptées une fois utilisées
 	kinds    map[string]string // prise → USB 2.0, USB 3.x ou USB-C
 	typeC    int               // ports de /sys/class/typec
 	total    int
@@ -316,16 +316,18 @@ func isDesktop() bool { return !isLaptop("/sys/class/dmi/id", sysPower) }
 // chipset, câblés ou non, et annonce plus de prises qu'il n'y en a.
 func readUSBPorts() usbPorts {
 	typeC, _ := filepath.Glob("/sys/class/typec/port?")
-	p := readUSBPortsAt(sysUSB, isDesktop())
+	p := readUSBPortsAt(sysUSB)
 	p.typeC = len(typeC)
 	return p
 }
 
-// readUSBPortsAt lit les ports sous root (/sys/bus/usb/devices). Sur un PC de
-// bureau, le microprogramme déclare branchables tous les ports USB 2.0 du
-// chipset, connecteurs internes et façade non câblée compris : une prise USB 2.0
-// n'y compte qu'au premier branchement, ou déjà occupée à l'ouverture du test.
-func readUSBPortsAt(root string, desktop bool) usbPorts {
+// readUSBPortsAt lit les ports sous root (/sys/bus/usb/devices). Le microprogramme
+// déclare souvent branchables des ports USB 2.0 du chipset sans prise : connecteurs
+// internes et façade non câblée d'une tour (OptiPlex 3050), ports du contrôleur
+// EHCI doublant ceux du xHCI sur un portable (Latitude 3550). Une prise USB 2.0
+// seule ne compte donc qu'au premier branchement, ou déjà occupée à l'ouverture
+// du test.
+func readUSBPortsAt(root string) usbPorts {
 	p := usbPorts{group: map[string]string{}, possible: map[string]string{}, unsure: map[string]bool{}, kinds: map[string]string{}}
 	// concentrateurs : contrôleurs (usbN), et hubs branchés sur un port câblé
 	hubs, _ := filepath.Glob(filepath.Join(root, "usb*"))
@@ -358,12 +360,10 @@ func readUSBPortsAt(root string, desktop bool) usbPorts {
 			}
 		}
 	}
-	if desktop {
-		for name, k := range p.group {
-			if p.kindOf(k) == usbKind2 {
-				p.possible[name], p.unsure[k] = k, true
-				delete(p.group, name)
-			}
+	for name, k := range p.group {
+		if p.kindOf(k) == usbKind2 {
+			p.possible[name], p.unsure[k] = k, true
+			delete(p.group, name)
 		}
 	}
 	p.finish()
@@ -371,7 +371,7 @@ func readUSBPortsAt(root string, desktop bool) usbPorts {
 }
 
 // adoptUnsure périphérique déjà branché à l'ouverture du test sur une prise
-// USB 2.0 d'un PC de bureau : la prise existe. Rend la prise, "" sinon.
+// USB 2.0 seule : la prise existe. Rend la prise, "" sinon.
 func (p *usbPorts) adoptUnsure(dev string) string {
 	if !p.unsure[lookupPort(p.possible, dev)] {
 		return ""
@@ -757,6 +757,31 @@ func connectorType(name string) string {
 		return internalScreen
 	}
 	return "" // Virtual, Writeback…
+}
+
+// vgaBridges sortie VGA reliée par un pont DisplayPort vers VGA : les puces Intel
+// depuis Broadwell n'ont plus de sortie analogique, la carte voit la prise VGA
+// comme DisplayPort et l'EDID de l'écran ne passe pas toujours le pont. Quand la
+// liste des prises annonce du VGA sans DisplayPort et que la carte n'a aucun
+// connecteur VGA, ses connecteurs DisplayPort sont la prise VGA (constaté sur un
+// Dell Latitude 3550 : DP-1 pour la prise VGA, aucun DisplayPort sur le PC).
+func vgaBridges(conns []videoConnector, ports map[string]int) []videoConnector {
+	if ports["VGA"] == 0 || ports["DisplayPort"] > 0 {
+		return conns
+	}
+	for _, c := range conns {
+		if c.Type == "VGA" {
+			return conns
+		}
+	}
+	out := make([]videoConnector, len(conns))
+	for i, c := range conns {
+		if c.Type == "DisplayPort" {
+			c.Plug = "VGA"
+		}
+		out[i] = c
+	}
+	return out
 }
 
 // edidAnalog vrai si l'écran se déclare analogique (octet 20 de l'EDID, bit 7 à
