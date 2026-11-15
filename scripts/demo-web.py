@@ -25,9 +25,12 @@ def main() -> int:
         shutil.rmtree(out)
     out.mkdir(parents=True)
 
+    # migrated_fynedo : l'application passe déjà tout par fyne.Do ; sans les
+    # contrôles de fil d'exécution de Fyne (runtime.Stack à chaque Refresh), une
+    # image coûte nettement moins en WebAssembly
     raw = out / "gobox.wasm"
     env = dict(os.environ, GOOS="js", GOARCH="wasm")
-    subprocess.run(["go", "build", "-tags", "demo", "-trimpath", "-ldflags=-s -w", "-o", str(raw), "./cmd/gobox-demo"],
+    subprocess.run(["go", "build", "-tags", "demo migrated_fynedo", "-trimpath", "-ldflags=-s -w", "-o", str(raw), "./cmd/gobox-demo"],
                    cwd=ROOT, env=env, check=True)
     data = raw.read_bytes()
     raw.unlink()

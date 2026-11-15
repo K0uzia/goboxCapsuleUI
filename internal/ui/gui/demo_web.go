@@ -26,8 +26,8 @@ import (
 
 const demoUnavailable = "Indisponible dans la démo"
 
-// RunDemo ouvre GoBox dans la page, sur une fiche déjà commencée : il reste le
-// stress test et le test clavier avant le verdict et l'impression
+// RunDemo ouvre GoBox dans la page, sur une fiche vierge : chaque test se
+// lance et suit son déroulé, sur un matériel simulé
 func RunDemo() {
 	// le navigateur n'a ni disque ni exécutable : les avertissements de Fyne
 	// (cache, métadonnées) n'apprennent rien au visiteur
@@ -37,19 +37,15 @@ func RunDemo() {
 	w := a.NewWindow("gobox · Toolbox La Capsule")
 
 	s := newSession()
-	s.Started = time.Now().Add(-14 * time.Minute)
-	s.Ref = "RC-" + s.Started.Format("2006-0102-1504")
 	s.Machine = machineInfo{Vendor: "HP", Product: "ProBook 450 G3", Serial: "DEMO-000451"}
 	s.Inventory = demoWebInventory()
 	s.markAbsent(map[string]string{"sim": "Pas de modem", "lecteur": "Pas de lecteur de carte à puce", "ssd": "Pas de SSD SATA", "nvme": "Pas de SSD NVMe"})
-	for _, r := range demoDone {
-		s.Results[r.id] = r.r
-	}
 	demoTests(s)
 
 	content, tools := mainContent(s, w)
 	w.SetContent(content)
 	s.changed()
+	slowMarchFrames(content)
 
 	// puce CPU de l'en-tête : relevé simulé, la page ne lit aucun capteur
 	walk(content, func(o fyne.CanvasObject) {
@@ -79,10 +75,54 @@ func RunDemo() {
 					relabeled = trap
 					relabelKeys(tools.view.root)
 				}
+				// le contour animé de la tuile du test en cours est dans le menu,
+				// masqué pendant le test : inutile de redessiner pour lui
+				if !tools.menu.Visible() {
+					for _, b := range tools.buttons {
+						if b.anim != nil {
+							b.anim.Stop()
+						}
+					}
+				}
 			})
 		}
 	}()
 	w.ShowAndRun()
+}
+
+// slowMarchFrames les cadres en pointillés tournent à 12 images/s au lieu de
+// chaque image : en WebAssembly, chaque image redessine toute la fenêtre et
+// produit des déchets mémoire, dont le ramassage fige la page
+func slowMarchFrames(root fyne.CanvasObject) {
+	var frames []*marchFrame
+	walk(root, func(o fyne.CanvasObject) {
+		if m, ok := o.(*marchFrame); ok {
+			running := m.running
+			m.anim.Stop()
+			m.anim = fyne.NewAnimation(time.Second, func(float32) {})
+			if running {
+				m.anim.Start()
+			}
+			frames = append(frames, m)
+		}
+	})
+	const fps = 12
+	step := float32(marchDash+marchGap) / (1.2 * fps) // un tour de motif en 1,2 s, comme l'application
+	go func() {
+		for range time.Tick(time.Second / fps) {
+			fyne.Do(func() {
+				for _, m := range frames {
+					if m.running && m.Visible() {
+						m.offset += step
+						if m.offset >= marchDash+marchGap {
+							m.offset -= marchDash + marchGap
+						}
+						m.draw()
+					}
+				}
+			})
+		}
+	}()
 }
 
 // walk parcourt les objets affichés
@@ -108,66 +148,6 @@ func relabelKeys(root fyne.CanvasObject) {
 			k.label.Refresh()
 		}
 	})
-}
-
-// demoDone tests déjà passés sur la fiche de démonstration (les mêmes que dans
-// la vidéo) ; chacun peut être relancé
-var demoDone = []struct {
-	id string
-	r  result
-}{
-	{"ports", result{Status: statusOK, Detail: "USB 3 / 3 · HDMI 1 / 1 · VGA 1 / 1", Data: map[string]string{"usb": "3 / 3", "HDMI": "1 / 1", "VGA": "1 / 1"}}},
-	{"son", result{Status: statusOK, Detail: "Haut-parleurs, prise casque et micro interne OK", Data: map[string]string{"card": statusData(statusOK), "speakers": statusData(statusOK), "jack": statusData(statusOK), "mic_int": statusData(statusOK), "mic_in": statusData(statusNA)}}},
-	{"reseau", result{Status: statusOK, Detail: "Ethernet connecté, DNS et accès internet OK"}},
-	{"souris", result{Status: statusOK, Detail: "6 / 6 actions du pavé tactile"}},
-	{"webcam", result{Status: statusOK, Detail: "Image reçue de la caméra intégrée"}},
-	{"sd", result{Status: statusOK, Detail: "Carte détectée"}},
-	{"wifi", result{Status: statusOK, Detail: "Carte reconnue : 5 réseau(x) vu(s)"}},
-	{"bluetooth", result{Status: statusOK, Detail: "Adaptateur reconnu : 2 appareil(s) vu(s)"}},
-	{"batterie", result{Status: statusOK, Detail: "La batterie charge"}},
-	{"chargeur", result{Status: statusOK, Detail: "Chargeur détecté"}},
-	{"hdd", result{Status: statusOK, Detail: "SMART : disque sain"}},
-	{"maj", result{Status: statusOK, Detail: "Système à jour"}},
-}
-
-// demoTests remplace les tests qui touchent au vrai matériel, au réseau ou au
-// système par leur version simulée
-func demoTests(s *session) {
-	canned := map[string]struct {
-		note, log string
-	}{
-		"son":    {"Dans la démo, aucun son n'est joué ni enregistré. Sur le PC, GoBox fait écouter chaque côté puis enregistre les micros.", "aucun son joué ni enregistré"},
-		"reseau": {"Dans la démo, rien n'est envoyé sur le réseau. Sur le PC, GoBox vérifie le lien, le DNS et l'accès internet.", "aucun accès au réseau"},
-		"webcam": {"Dans la démo, la caméra n'est pas ouverte. Sur le PC, GoBox affiche l'image de la webcam.", "caméra non ouverte"},
-		"sd":     {"Dans la démo, aucun lecteur n'est lu. Sur le PC, la carte SD insérée est détectée toute seule.", "aucun lecteur lu"},
-		"hdd":    {"Dans la démo, aucun disque n'est lu. Sur le PC, GoBox lit l'état SMART de chaque disque.", "aucun disque lu"},
-		"maj":    {"Dans la démo, rien n'est mis à jour. Sur le PC, GoBox installe les mises à jour du système.", "aucune mise à jour réelle"},
-	}
-	done := map[string]result{}
-	for _, d := range demoDone {
-		done[d.id] = d.r
-	}
-	for _, def := range s.Tests {
-		switch def.ID {
-		case "stress":
-			def.Run = demoStress
-		default:
-			if c, ok := canned[def.ID]; ok {
-				r := done[def.ID]
-				def.Run = func(t *testCtx) result {
-					t.markSimulated()
-					t.progress(-1)
-					t.panel(func() fyne.CanvasObject { return instruction("circle-info", c.note) })
-					t.log("%s : %s", demoUnavailable, c.log)
-					if !t.sleep(1500 * time.Millisecond) {
-						return result{}
-					}
-					t.log("Résultat simulé : %s", r.Detail)
-					return r
-				}
-			}
-		}
-	}
 }
 
 // ---- Stress test accéléré ---------------------------------------------------

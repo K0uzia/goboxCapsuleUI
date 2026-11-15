@@ -11,6 +11,17 @@ for (const type of ['focus', 'blur']) {
   }, true);
 }
 
+// Le pilote web pose ses écouteurs de molette et de toucher sans { passive: false } :
+// Chrome les traite alors en passif et chaque preventDefault écrit une erreur dans
+// la console. On les déclare non passifs, ce qu'ils sont.
+const addListener = EventTarget.prototype.addEventListener;
+EventTarget.prototype.addEventListener = function (type, fn, opts) {
+  if ((type === 'wheel' || type === 'touchstart' || type === 'touchmove') && (opts === undefined || typeof opts === 'boolean')) {
+    return addListener.call(this, type, fn, { capture: opts === true, passive: false });
+  }
+  return addListener.call(this, type, fn, opts);
+};
+
 (async () => {
   const host = window.parent;
   try {
