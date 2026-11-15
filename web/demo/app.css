@@ -1,0 +1,3 @@
+/* Cadre de l'application : la toile de Fyne occupe tout */
+html, body { height: 100%; margin: 0; overflow: hidden; background: #0b1020; }
+canvas { display: block; }

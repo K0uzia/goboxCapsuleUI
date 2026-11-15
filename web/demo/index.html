@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>Démo GoBox : test et fiche des PC reconditionnés</title>
+  <meta name="description" content="Essayez GoBox en ligne : fiche du technicien, stress test, test du clavier touche par touche et fiche PDF d'un PC reconditionné. Données fictives, rien n'est envoyé.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://demo-gobox.kouzia.com/">
+  <meta name="theme-color" content="#0b1020">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="fr_FR">
+  <meta property="og:title" content="Démo GoBox : test et fiche des PC reconditionnés">
+  <meta property="og:description" content="Essayez GoBox en ligne : fiche du technicien, stress test, test du clavier touche par touche et fiche PDF d'un PC reconditionné. Données fictives, rien n'est envoyé.">
+  <meta property="og:url" content="https://demo-gobox.kouzia.com/">
+  <meta property="og:image" content="https://demo-gobox.kouzia.com/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="demo.css">
+  <script src="demo.js" defer></script>
+</head>
+<body>
+  <header class="banner" aria-label="Démonstration">
+    <p class="banner-text">
+      <svg class="banner-icon" viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d="M256 512a256 256 0 1 0 0-512 256 256 0 1 0 0 512zM216 336l24 0 0-64-24 0c-13.3 0-24-10.7-24-24s10.7-24 24-24l48 0c13.3 0 24 10.7 24 24l0 88 8 0c13.3 0 24 10.7 24 24s-10.7 24-24 24l-80 0c-13.3 0-24-10.7-24-24s10.7-24 24-24zm40-208a32 32 0 1 1 0 64 32 32 0 1 1 0-64z"/></svg>
+      <span><strong>Démo :</strong> <span class="long">données fictives, rien n'est envoyé ni enregistré ailleurs que dans votre navigateur.</span><span class="short">données fictives, rien ne quitte votre navigateur.</span></span>
+    </p>
+    <button type="button" class="banner-action" id="reset">
+      <svg viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d="M105.1 202.6c7.7-21.8 20.2-42.3 37.8-59.8c62.5-62.5 163.8-62.5 226.3 0L386.3 160 352 160c-17.7 0-32 14.3-32 32s14.3 32 32 32l111.5 0c0 0 0 0 0 0l.4 0c17.7 0 32-14.3 32-32l0-112c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 35.2L414.4 97.6c-87.5-87.5-229.3-87.5-316.8 0C73.2 122 55.6 150.7 44.8 181.4c-5.9 16.7 2.9 34.9 19.5 40.8s34.9-2.9 40.8-19.5zM39 289.3c-5 1.5-9.8 4.2-13.7 8.2c-4 4-6.7 8.8-8.1 14c-.3 1.2-.6 2.5-.8 3.8c-.3 1.7-.4 3.4-.4 5.1L16 432c0 17.7 14.3 32 32 32s32-14.3 32-32l0-35.1 17.6 17.5c0 0 0 0 0 0c87.5 87.4 229.3 87.4 316.7 0c24.4-24.4 42.1-53.1 52.9-83.8c5.9-16.7-2.9-34.9-19.5-40.8s-34.9 2.9-40.8 19.5c-7.7 21.8-20.2 42.3-37.8 59.8c-62.5 62.5-163.8 62.5-226.3 0l-.1-.1L125.6 352l34.4 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L48.4 288c-1.6 0-3.2 .1-4.8 .3s-3.1 .5-4.6 1z"/></svg>
+      Réinitialiser
+    </button>
+    <a class="banner-action" href="https://kouzia.com/">
+      <svg viewBox="0 0 448 512" aria-hidden="true"><path fill="currentColor" d="M9.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.2 288 416 288c17.7 0 32-14.3 32-32s-14.3-32-32-32l-306.7 0L214.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg>
+      <span><span class="long">Retour sur </span>kouzia.com</span>
+    </a>
+  </header>
+
+  <main class="stage" id="stage">
+    <section class="intro" id="intro" aria-live="polite">
+      <img class="intro-logo" src="favicon.svg" alt="" width="56" height="56">
+      <h1>Démo GoBox : test et fiche des PC reconditionnés</h1>
+      <p class="lead">L'application de l'atelier, telle quelle, sur un PC portable fictif : remplissez l'en-tête de la fiche, lancez le stress test, testez votre clavier touche par touche, puis imprimez la fiche PDF avec PRINT.</p>
+
+      <div class="phone" id="phone" hidden>
+        <p><strong>GoBox est un outil d'ordinateur.</strong> Il se lance sur le PC à tester, avec un clavier et une souris, sur un écran large. Sur téléphone, la démo est très petite et le test clavier ne peut pas se faire.</p>
+        <div class="actions">
+          <button type="button" class="primary" id="launch">Lancer quand même</button>
+          <a class="secondary" href="https://kouzia.com/">Retour sur kouzia.com</a>
+        </div>
+      </div>
+
+      <div class="loading" id="loading" hidden>
+        <div class="bar" role="progressbar" aria-label="Chargement de GoBox" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><div class="bar-fill" id="bar-fill"></div></div>
+        <p class="status" id="status">Chargement de GoBox…</p>
+        <p class="note">Environ 12 Mo à télécharger une seule fois : c'est l'application complète, compilée pour le navigateur.</p>
+      </div>
+
+      <p class="error" id="error" hidden></p>
+      <noscript><p class="error">La démo a besoin de JavaScript et de WebAssembly.</p></noscript>
+    </section>
+  </main>
+</body>
+</html>

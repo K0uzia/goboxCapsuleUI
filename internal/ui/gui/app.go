@@ -91,18 +91,7 @@ func Run() {
 // mainContent contenu de la fenêtre principale : en-tête, fiche, outils,
 // barre d'étapes
 func mainContent(s *session, w fyne.Window) (fyne.CanvasObject, *toolsPanel) {
-	printNow := func() {
-		path, err := writeFiche(s)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("création de la fiche : %w", err), w)
-			return
-		}
-		// l'ouverture attend quelques secondes la réponse du navigateur
-		go func() {
-			err := openInBrowser(path)
-			fyne.Do(func() { showPrinted(w, path, err) })
-		}()
-	}
+	printNow := func() { printFiche(s, w) }
 	// Fiche incomplète : on demande avant d'imprimer, en disant ce qui manque
 	onPrint := func() {
 		done, _, _, _ := s.counts()
@@ -313,28 +302,6 @@ func showInfo(s *session, w fyne.Window) {
 		mutedNote("Icônes : Font Awesome Free (CC BY 4.0). Polices : Exo 2 et Share Tech Mono (SIL OFL 1.1)."),
 	)
 	showPopup(w, "À propos", content)
-}
-
-// showDiagnostic rapport à copier pour transmettre l'état de la machine, sans passer
-// par une commande
-func showDiagnostic(w fyne.Window) {
-	report := widget.NewLabel("Lecture du matériel…")
-	report.Wrapping = fyne.TextWrapWord
-	report.TextStyle.Monospace = true
-	view := container.NewVScroll(report)
-	view.SetMinSize(fyne.NewSize(440, 380))
-	text := ""
-	copyBtn := primaryButton("Copier le diagnostic", coloredIcon("copy", cAccentText), func() {
-		fyne.CurrentApp().Clipboard().SetContent(text)
-	})
-	showPopup(w, "Diagnostic matériel", container.NewVBox(view, container.NewHBox(copyBtn)))
-	go func() {
-		out, _ := diagnosticReport()
-		fyne.Do(func() {
-			text = out
-			report.SetText(out)
-		})
-	}()
 }
 
 // showSettings réglages de la session (perdus au redémarrage du PC)

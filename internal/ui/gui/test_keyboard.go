@@ -462,7 +462,7 @@ func runKeyboard(t *testCtx) result {
 		}
 		plan := container.New(&keyboardLayout{keys: m.plan}, objs...)
 		repaint(all()...)
-		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { pressFrom("la fenêtre", ev.Physical.ScanCode, string(ev.Name), press) })
+		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { pressFrom("la fenêtre", keyScanCode(ev), string(ev.Name), press) })
 		head := container.NewVBox(container.NewHBox(counter, container.NewCenter(kindText)), padText)
 		hint := mutedNote("Appuyez sur chaque touche, Fn compris : une fonction obtenue avec Fn (Impr, volume, luminosité) s'allume à part. La touche de veille ne met pas le PC en veille pendant le test. " +
 			"Pavé numérique et touches multimédia apparaissent au premier appui. Touche grisée : absente, elle ne compte pas ; un clic la retire ou la remet.")
