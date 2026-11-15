@@ -49,9 +49,44 @@ def main() -> int:
     runtime = "\n".join(l for l in runtime.splitlines() if not (l.strip().startswith("//") and "://" in l)) + "\n"
     (out / "wasm_exec.js").write_text(runtime, encoding="utf-8", newline="\n")
 
-    js = (out / "demo.js").read_text(encoding="utf-8")
-    js = js.replace("__VERSION__", version).replace("__GZ_SIZE__", str(len(packed))).replace("__RAW_SIZE__", str(len(data)))
-    (out / "demo.js").write_text(js, encoding="utf-8", newline="\n")
+    # Empreinte dans chaque adresse de fichier statique (?v=) : le CDN garde ces
+    # fichiers une semaine, une nouvelle version doit changer d'adresse. Un
+    # fichier n'est empreinté qu'après la réécriture de ses propres liens.
+    def stamp(name: str) -> str:
+        return hashlib.sha256((out / name).read_bytes()).hexdigest()[:10]
+
+    def rewrite(name: str, pairs: list[tuple[str, str]]) -> None:
+        text = (out / name).read_text(encoding="utf-8")
+        for old, new in pairs:
+            if old not in text:
+                raise SystemExit(f"{name} : lien introuvable {old!r}")
+            text = text.replace(old, new)
+        (out / name).write_text(text, encoding="utf-8", newline="\n")
+
+    v = {n: stamp(n) for n in ("app.css", "demo.css", "app.js", "wasm_exec.js", "favicon.svg", "og-image.png")}
+    rewrite("app.html", [
+        ('href="favicon.svg"', f'href="favicon.svg?v={v["favicon.svg"]}"'),
+        ('href="app.css"', f'href="app.css?v={v["app.css"]}"'),
+        ('src="wasm_exec.js"', f'src="wasm_exec.js?v={v["wasm_exec.js"]}"'),
+        ('src="app.js"', f'src="app.js?v={v["app.js"]}"'),
+    ])
+    rewrite("demo.js", [
+        ("__VERSION__", version), ("__GZ_SIZE__", str(len(packed))), ("__RAW_SIZE__", str(len(data))),
+        ("frame.src = 'app.html';", f"frame.src = 'app.html?v={stamp('app.html')}';"),
+    ])
+    v["demo.js"] = stamp("demo.js")
+    rewrite("index.html", [
+        ('href="favicon.svg"', f'href="favicon.svg?v={v["favicon.svg"]}"'),
+        ('src="favicon.svg"', f'src="favicon.svg?v={v["favicon.svg"]}"'),
+        ('href="demo.css"', f'href="demo.css?v={v["demo.css"]}"'),
+        ('src="demo.js"', f'src="demo.js?v={v["demo.js"]}"'),
+        ('/og-image.png"', f'/og-image.png?v={v["og-image.png"]}"'),
+    ])
+    rewrite("404.html", [
+        ('href="/favicon.svg"', f'href="/favicon.svg?v={v["favicon.svg"]}"'),
+        ('src="/favicon.svg"', f'src="/favicon.svg?v={v["favicon.svg"]}"'),
+        ('href="/demo.css"', f'href="/demo.css?v={v["demo.css"]}"'),
+    ])
 
     # contrôles : ni tiret cadratin ou demi-cadratin, ni lien vers l'hébergeur du code
     bad = []
