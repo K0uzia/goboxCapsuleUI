@@ -22,20 +22,18 @@ EventTarget.prototype.addEventListener = function (type, fn, opts) {
   return addListener.call(this, type, fn, opts);
 };
 
-(async () => {
-  const host = window.parent;
+// La page envoie l'application par message (seule voie possible en file://,
+// où page et cadre n'ont pas la même origine)
+const host = window.parent;
+const target = location.protocol === 'file:' ? '*' : location.origin;
+const tell = (msg) => host.postMessage(msg, target);
+
+async function run(bytes) {
   try {
-    const bytes = host.goboxWasm;
-    if (!bytes) {
-      // cadre ouvert seul : retour à la page de la démo
-      location.replace('./');
-      return;
-    }
-    host.goboxWasm = null;
     const seen = new MutationObserver(() => {
       if (document.querySelector('canvas')) {
         seen.disconnect();
-        requestAnimationFrame(() => requestAnimationFrame(() => host.goboxReady()));
+        requestAnimationFrame(() => requestAnimationFrame(() => tell({ type: 'gobox-ready' })));
       }
     });
     seen.observe(document.documentElement, { childList: true, subtree: true });
@@ -43,6 +41,18 @@ EventTarget.prototype.addEventListener = function (type, fn, opts) {
     const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
     await go.run(instance);
   } catch (err) {
-    if (host.goboxFailed) host.goboxFailed(err);
+    tell({ type: 'gobox-failed', message: String(err && err.message ? err.message : err) });
   }
-})();
+}
+
+if (host === window) {
+  // cadre ouvert seul : retour à la page de la démo
+  location.replace('./');
+} else {
+  window.addEventListener('message', function onWasm(e) {
+    if (e.source !== host || !e.data || e.data.type !== 'gobox-wasm') return;
+    window.removeEventListener('message', onWasm);
+    run(e.data.bytes);
+  });
+  tell({ type: 'gobox-hello' });
+}

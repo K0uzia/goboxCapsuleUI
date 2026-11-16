@@ -6,6 +6,7 @@ le site statique dans build/demo-web (ou le dossier donné en argument).
 Usage : python scripts/demo-web.py [dossier]
 """
 
+import base64
 import gzip
 import hashlib
 import os
@@ -37,6 +38,10 @@ def main() -> int:
     packed = gzip.compress(data, compresslevel=9, mtime=0)
     (out / "gobox.wasm.gz").write_bytes(packed)
     version = hashlib.sha256(packed).hexdigest()[:10]
+    # Copie en script pour la page ouverte depuis le disque (file://) : fetch y
+    # est refusé, une balise <script> classique non. Chargée seulement dans ce cas.
+    b64 = base64.b64encode(packed).decode("ascii")
+    (out / "gobox.wasm.js").write_bytes(b'self.goboxWasmGz="' + b64.encode("ascii") + b'";\n')
 
     for f in SRC.iterdir():
         if f.is_file():
@@ -91,7 +96,7 @@ def main() -> int:
     # contrôles : ni tiret cadratin ou demi-cadratin, ni lien vers l'hébergeur du code
     bad = []
     for f in out.iterdir():
-        if f.suffix in {".html", ".js", ".css", ".txt", ".xml", ".svg"} or f.name == ".htaccess":
+        if f.name != "gobox.wasm.js" and (f.suffix in {".html", ".js", ".css", ".txt", ".xml", ".svg"} or f.name == ".htaccess"):
             text = f.read_text(encoding="utf-8")
             if "\u2014" in text or "\u2013" in text or re.search("git" + "hub", text, re.I):
                 bad.append(f.name)
@@ -100,7 +105,7 @@ def main() -> int:
         return 1
 
     print(f"{out}")
-    print(f"gobox.wasm : {len(data):,} octets, gobox.wasm.gz : {len(packed):,} octets (version {version})")
+    print(f"gobox.wasm : {len(data):,} octets, gobox.wasm.gz : {len(packed):,} octets, gobox.wasm.js : {(out / 'gobox.wasm.js').stat().st_size:,} octets (version {version})")
     return 0
 
 

@@ -1,9 +1,12 @@
 // Démo GoBox : télécharge l'application (WebAssembly compressé), affiche la
 // progression, puis l'ouvre dans un cadre sous le bandeau. Rien n'est envoyé.
+// Ouverte depuis le disque (file://), la page ne peut rien télécharger : elle
+// lit alors la copie de l'application en script (gobox.wasm.js).
 'use strict';
 
 // Valeurs remplies par scripts/demo-web.py
-const WASM = { url: 'gobox.wasm.gz?v=__VERSION__', gz: __GZ_SIZE__, raw: __RAW_SIZE__ };
+const WASM = { url: 'gobox.wasm.gz?v=__VERSION__', script: 'gobox.wasm.js?v=__VERSION__', gz: __GZ_SIZE__, raw: __RAW_SIZE__ };
+const FROM_DISK = location.protocol === 'file:';
 
 const $ = (id) => document.getElementById(id);
 const mo = (n) => (n / 1e6).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -23,10 +26,43 @@ function fail(err) {
   const detail = document.createElement('span');
   detail.textContent = `(${err && err.message ? err.message : err})`;
   box.append(detail);
+  if (FROM_DISK) {
+    const link = document.createElement('a');
+    link.href = 'https://demo-gobox.kouzia.com/';
+    link.textContent = 'demo-gobox.kouzia.com';
+    box.append(" Elle s'ouvre aussi en ligne sur ", link, '.');
+  }
   console.warn(err);
 }
 
-async function download() {
+// file:// : fetch est refusé, une balise <script> classique reste permise
+function loadScript() {
+  $('status').textContent = 'Lecture de GoBox sur le disque…';
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = WASM.script;
+    s.onload = () => {
+      s.remove();
+      const b64 = window.goboxWasmGz;
+      delete window.goboxWasmGz;
+      if (typeof b64 !== 'string') { reject(new Error("copie de l'application illisible")); return; }
+      let bytes;
+      if (typeof Uint8Array.fromBase64 === 'function') {
+        bytes = Uint8Array.fromBase64(b64);
+      } else {
+        const bin = atob(b64);
+        bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      }
+      setProgress(bytes.length, bytes.length);
+      resolve(bytes);
+    };
+    s.onerror = () => reject(new Error('fichier gobox.wasm.js introuvable à côté de la page'));
+    document.head.append(s);
+  });
+}
+
+async function fetchWasm() {
   const res = await fetch(WASM.url);
   if (!res.ok) throw new Error(`téléchargement refusé (${res.status})`);
   const reader = res.body.getReader();
@@ -40,9 +76,14 @@ async function download() {
     // le serveur a pu décompresser lui-même : la taille attendue est alors la taille brute
     setProgress(done, done > WASM.gz ? WASM.raw : WASM.gz);
   }
-  let bytes = new Uint8Array(done);
+  const bytes = new Uint8Array(done);
   let at = 0;
   for (const c of chunks) { bytes.set(c, at); at += c.length; }
+  return bytes;
+}
+
+async function download() {
+  let bytes = FROM_DISK ? await loadScript() : await fetchWasm();
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
     $('status').textContent = 'Décompression…';
     const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
@@ -58,7 +99,7 @@ async function start() {
     if (!('WebAssembly' in window) || !('DecompressionStream' in window)) {
       throw new Error('WebAssembly ou DecompressionStream absent');
     }
-    window.goboxWasm = await download();
+    wasm = await download();
     $('status').textContent = "Démarrage de l'application…";
     const frame = document.createElement('iframe');
     frame.className = 'app-frame';
@@ -93,8 +134,26 @@ function fit() {
   frame.style.transform = `scale(${scale})`;
 }
 
-// appelé par app.html quand la fenêtre de GoBox est dessinée
-window.goboxReady = () => {
+// Échanges avec le cadre par messages : en file:// la page et le cadre n'ont
+// pas la même origine et ne peuvent pas lire les variables l'un de l'autre
+let wasm = null;
+window.addEventListener('message', (e) => {
+  const frame = document.querySelector('.app-frame');
+  if (!frame || e.source !== frame.contentWindow || !e.data) return;
+  const target = FROM_DISK ? '*' : location.origin;
+  if (e.data.type === 'gobox-hello' && wasm) {
+    const bytes = wasm;
+    wasm = null;
+    frame.contentWindow.postMessage({ type: 'gobox-wasm', bytes }, target, [bytes.buffer]);
+  } else if (e.data.type === 'gobox-ready') {
+    ready();
+  } else if (e.data.type === 'gobox-failed') {
+    fail(e.data.message);
+  }
+});
+
+// quand la fenêtre de GoBox est dessinée
+function ready() {
   $('intro').classList.add('done');
   setTimeout(() => { $('intro').hidden = true; }, 350);
   const frame = document.querySelector('.app-frame');
@@ -102,8 +161,7 @@ window.goboxReady = () => {
     frame.focus();
     frame.contentWindow.focus();
   }
-};
-window.goboxFailed = fail;
+}
 
 $('reset').addEventListener('click', () => {
   try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* stockage indisponible */ }
