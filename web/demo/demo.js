@@ -113,24 +113,27 @@ async function start() {
   }
 }
 
-// Écran étroit : l'application garde sa largeur d'ordinateur, réduite pour
-// tenir dans la page (les clics restent justes, le cadre fait la conversion)
+// Écran étroit ou bas : l'application garde sa taille minimale d'ordinateur,
+// réduite pour tenir dans la page (les clics restent justes, le cadre fait la
+// conversion). Plus basse que APP_MIN_HEIGHT, la fenêtre de GoBox perdait son
+// en-tête (étapes, PRINT) : téléphone à l'horizontale, petite fenêtre.
 const APP_MIN_WIDTH = 1280;
+const APP_MIN_HEIGHT = 700;
 function fit() {
   const frame = document.querySelector('.app-frame');
   if (!frame) return;
   const stage = $('stage');
   const w = stage.clientWidth;
   const h = stage.clientHeight;
-  if (w >= APP_MIN_WIDTH) {
+  const scale = Math.min(1, w / APP_MIN_WIDTH, h / APP_MIN_HEIGHT);
+  if (scale === 1) {
     frame.style.width = '';
     frame.style.height = '';
     frame.style.transform = '';
     return;
   }
-  const scale = w / APP_MIN_WIDTH;
-  frame.style.width = `${APP_MIN_WIDTH}px`;
-  frame.style.height = `${Math.round(h / scale)}px`;
+  frame.style.width = `${Math.floor(w / scale)}px`;
+  frame.style.height = `${Math.floor(h / scale)}px`;
   frame.style.transform = `scale(${scale})`;
 }
 

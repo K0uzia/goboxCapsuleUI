@@ -125,10 +125,22 @@ func slowMarchFrames(root fyne.CanvasObject) {
 	}()
 }
 
-// walk parcourt les objets affichés
+// walk parcourt les objets affichés par les rendus déjà en place.
+// test.LaidOutObjects ne convient pas : il appelle CreateRenderer sur chaque
+// widget, et un widget.Label y remplace son texte interne par un nouveau, que
+// la fenêtre n'affiche pas. Le texte affiché restait figé sur sa première mise
+// en page : plus de retour à la ligne, valeurs coupées au bord des cartes.
 func walk(root fyne.CanvasObject, f func(fyne.CanvasObject)) {
-	for _, o := range test.LaidOutObjects(root) {
-		f(o)
+	f(root)
+	switch o := root.(type) {
+	case *fyne.Container:
+		for _, c := range o.Objects {
+			walk(c, f)
+		}
+	case fyne.Widget:
+		for _, c := range test.WidgetRenderer(o).Objects() {
+			walk(c, f)
+		}
 	}
 }
 
