@@ -22,9 +22,13 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/widget"
 )
 
 const demoUnavailable = "Indisponible dans la démo"
+
+// debugHook recette automatique (demo_debug_web.go, étiquette demodebug)
+var debugHook func(fyne.Window, *toolsPanel)
 
 // RunDemo ouvre GoBox dans la page, sur une fiche vierge : chaque test se
 // lance et suit son déroulé, sur un matériel simulé
@@ -32,6 +36,10 @@ func RunDemo() {
 	// le navigateur n'a ni disque ni exécutable : les avertissements de Fyne
 	// (cache, métadonnées) n'apprennent rien au visiteur
 	log.SetOutput(io.Discard)
+	// mise en page selon la largeur de la page (téléphone, tablette,
+	// ordinateur) ; cibles agrandies sur écran tactile
+	responsive = true
+	touchUI = js.Global().Call("matchMedia", "(pointer: coarse)").Get("matches").Bool()
 	a := app.NewWithID(appID)
 	a.Settings().SetTheme(newTheme(true))
 	w := a.NewWindow("gobox · Toolbox La Capsule")
@@ -44,6 +52,9 @@ func RunDemo() {
 
 	content, tools := mainContent(s, w)
 	w.SetContent(content)
+	if debugHook != nil {
+		debugHook(w, tools)
+	}
 	s.changed()
 	slowMarchFrames(content)
 
@@ -66,6 +77,12 @@ func RunDemo() {
 	}()
 
 	listenPhysicalKeys()
+	// la page n'ouvre le clavier du téléphone que pour un champ de saisie
+	// (app.js), pas pour chaque bouton touché
+	js.Global().Set("goboxWantsKeyboard", js.FuncOf(func(js.Value, []js.Value) any {
+		_, ok := w.Canvas().Focused().(*widget.Entry)
+		return ok
+	}))
 	// une fois par test clavier, quand le piège à touches prend le focus
 	var relabeled *keyTrap
 	go func() {
@@ -262,7 +279,7 @@ func printFiche(s *session, w fyne.Window) {
 
 	msg := wrapLabel("La fiche PDF est téléchargée par votre navigateur sous le nom " + name + ". Sur le PC de l'atelier, GoBox l'ouvre directement pour l'imprimer.")
 	note := mutedNote(demoUnavailable + " : aucune impression réelle, rien n'est envoyé.")
-	dialog.NewCustom("Fiche téléchargée", "Fermer", container.New(&widthLayout{w: 460}, container.NewVBox(msg, note)), w).Show()
+	dialog.NewCustom("Fiche téléchargée", "Fermer", container.New(&widthLayout{w: boxWidth(w, 460)}, container.NewVBox(msg, note)), w).Show()
 }
 
 // showDiagnostic le rapport lance des commandes du système : neutralisé

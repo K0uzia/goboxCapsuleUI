@@ -380,6 +380,9 @@ func (v stressVerdict) result() result {
 func (v stressVerdict) summary(chart *lineChart) fyne.CanvasObject {
 	row := func(label, value string, s status) fyne.CanvasObject {
 		p := newPill(s)
+		if responsive { // étroit : la valeur passe à la ligne sous son libellé
+			return listRow(critLine(label, value), container.NewCenter(p.root))
+		}
 		return listRow(container.NewHBox(text(label, 13, false, cText), text(value, 13, true, cText)), container.NewCenter(p.root))
 	}
 	errSt := statusOK
@@ -402,7 +405,7 @@ func (v stressVerdict) summary(chart *lineChart) fyne.CanvasObject {
 		caption("Critères"),
 		row("Erreurs de calcul : ", fmt.Sprintf("%d", v.errors), errSt),
 		row("Température max : ", temp, v.tempStatus()),
-		listRow(container.NewHBox(text("Fréquence : ", 13, false, cText), text(thr, 13, true, cText)), container.NewHBox()),
+		freqRow(thr),
 		row("Durée : ", dur, durSt),
 		caption("Température pendant le test"), chart,
 	)

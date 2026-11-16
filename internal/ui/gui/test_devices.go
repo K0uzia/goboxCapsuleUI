@@ -867,10 +867,19 @@ func newMouseZone(onDone func(done, total int)) *mouseZone {
 	z.area.StrokeWidth = 2
 	z.hint = text("Faites chaque action avec le pointeur dans ce cadre", 15, true, cText)
 	z.hint.Alignment = fyne.TextAlignCenter
+	z.hint.Wrap = responsive
+	if touchUI { // écran tactile : les gestes qui donnent chaque action
+		z.hint.Text = "Dans ce cadre : touchez, glissez vers le haut puis le bas, appui long pour le clic droit, deux doigts pour le clic molette"
+		z.hint.TextSize = 13
+	}
 	z.counter = text("", 13, false, cMuted)
 	z.counter.Alignment = fyne.TextAlignCenter
+	var words fyne.CanvasObject = container.NewVBox(layout.NewSpacer(), z.hint, z.counter, layout.NewSpacer())
+	if responsive {
+		words = container.New(&padLayout{h: 12, v: 8}, words)
+	}
 	z.root = container.NewVBox(
-		container.NewStack(z.area, container.NewVBox(layout.NewSpacer(), z.hint, z.counter, layout.NewSpacer())),
+		container.NewStack(z.area, words),
 		container.New(&respGrid{minCol: 120, cols: []int{6, 3, 2}, gap: 6}, objs...),
 	)
 	z.ExtendBaseWidget(z)

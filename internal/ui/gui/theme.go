@@ -156,9 +156,11 @@ var (
 )
 
 // kouziaTheme thème de l'application ; dark choisit la palette
-type kouziaTheme struct{ dark bool }
+// touch : marges intérieures agrandies, boutons et champs de 44 de haut au
+// moins (démo sur écran tactile)
+type kouziaTheme struct{ dark, touch bool }
 
-func newTheme(dark bool) fyne.Theme { return &kouziaTheme{dark: dark} }
+func newTheme(dark bool) fyne.Theme { return &kouziaTheme{dark: dark, touch: touchUI} }
 
 // isDark thème courant de l'application
 func isDark() bool {
@@ -232,6 +234,9 @@ func (t *kouziaTheme) Size(n fyne.ThemeSizeName) float32 {
 	case theme.SizeNamePadding:
 		return 4
 	case theme.SizeNameInnerPadding:
+		if t.touch {
+			return 14
+		}
 		return 7
 	case theme.SizeNameInputRadius, theme.SizeNameButtonRadius:
 		return 7

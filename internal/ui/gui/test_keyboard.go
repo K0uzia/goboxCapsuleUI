@@ -313,6 +313,9 @@ type keyCapW struct {
 	bg    *tRect
 	label *tText
 	onTap func()
+	scale float32 // libellé réduit avec le plan (démo sur écran étroit), 0 : 1
+
+	present, pressed, azerty bool // dernier état peint
 }
 
 func newKeyCap(d keyDef, onTap func()) *keyCapW {
@@ -331,6 +334,7 @@ func (c *keyCapW) Cursor() desktop.Cursor  { return desktop.PointerCursor }
 
 // paint couleurs selon l'état : appuyée, à tester, absente de ce clavier
 func (c *keyCapW) paint(present, pressed, azerty bool) {
+	c.present, c.pressed, c.azerty = present, pressed, azerty
 	c.label.Text = c.def.Qwerty
 	if azerty {
 		c.label.Text = c.def.Azerty
@@ -339,6 +343,9 @@ func (c *keyCapW) paint(present, pressed, azerty bool) {
 	c.label.TextSize = 11
 	if utf8.RuneCountInString(c.label.Text) > 3 && c.def.W < 1.5 {
 		c.label.TextSize = 8.5
+	}
+	if c.scale > 0 {
+		c.label.TextSize *= c.scale
 	}
 	switch {
 	case pressed:
@@ -355,17 +362,42 @@ func (c *keyCapW) paint(present, pressed, azerty bool) {
 }
 
 // keyboardLayout place chaque touche sur le plan, mis à l'échelle de la largeur
-type keyboardLayout struct{ keys []keyDef }
+type keyboardLayout struct {
+	keys  []keyDef
+	lastW float32 // démo adaptée à la largeur : hauteur selon la dernière largeur
+}
 
 const keyGap = 3
 
 func (l *keyboardLayout) unit(w float32) float32 { return min(w/keyboardCols, 44) }
 
 func (l *keyboardLayout) MinSize([]fyne.CanvasObject) fyne.Size {
+	if responsive { // le plan suit la largeur, comme une image
+		u := float32(28)
+		if l.lastW > 0 {
+			u = l.unit(l.lastW)
+		}
+		return fyne.NewSize(keyboardCols*12, keyboardRows*u)
+	}
 	return fyne.NewSize(keyboardCols*26, keyboardRows*28)
 }
 
 func (l *keyboardLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	if responsive {
+		before := l.MinSize(objs).Height
+		l.lastW = size.Width
+		if l.MinSize(objs).Height != before && len(objs) > 0 {
+			relayoutLater(objs[0])
+		}
+		// libellés à l'échelle des touches : 26 de large au plan d'origine
+		scale := min(1, l.unit(size.Width)/26)
+		for _, o := range objs {
+			if c, ok := o.(*keyCapW); ok && c.scale != scale {
+				c.scale = scale
+				c.paint(c.present, c.pressed, c.azerty)
+			}
+		}
+	}
 	u := l.unit(size.Width)
 	uy := min(u, size.Height/keyboardRows)
 	x0 := (size.Width - u*keyboardCols) / 2
@@ -453,6 +485,10 @@ func runKeyboard(t *testCtx) result {
 		objs := make([]fyne.CanvasObject, len(m.plan))
 		for i, d := range m.plan {
 			c := newKeyCap(d, func() {
+				if touchUI { // écran tactile, sans clavier : toucher la touche l'appuie
+					press(d.Code, "")
+					return
+				}
 				if m.toggle(d.Code) {
 					repaint(d.Code)
 				}
@@ -464,6 +500,13 @@ func runKeyboard(t *testCtx) result {
 		repaint(all()...)
 		trap = newKeyTrap(t.win.Canvas(), func(ev *fyne.KeyEvent) { pressFrom("la fenêtre", keyScanCode(ev), string(ev.Name), press) })
 		head := container.NewVBox(container.NewHBox(counter, container.NewCenter(kindText)), padText)
+		if responsive {
+			padText.Wrap = true
+			head = container.NewVBox(container.New(&flowLayout{gap: 8, vgap: 2}, counter, kindText), padText)
+		}
+		if touchUI {
+			return container.NewVBox(head, plan, touchKeyboardHelp(m, press, all), trap)
+		}
 		hint := mutedNote("Appuyez sur chaque touche, Fn compris : une fonction obtenue avec Fn (Impr, volume, luminosité) s'allume à part. La touche de veille ne met pas le PC en veille pendant le test. " +
 			"Pavé numérique et touches multimédia apparaissent au premier appui. Touche grisée : absente, elle ne compte pas ; un clic la retire ou la remet.")
 		return container.NewVBox(head, plan, hint, trap)

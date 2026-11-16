@@ -109,8 +109,12 @@ func mainContent(s *session, w fyne.Window) (fyne.CanvasObject, *toolsPanel) {
 			lines = append(lines, fmt.Sprintf("Il reste %d test(s) à faire. La fiche imprimée les indiquera « À faire ».", left))
 		}
 		msg := wrapLabel(strings.Join(lines, "\n\n"))
-		dialog.NewCustomConfirm("Fiche incomplète", "Imprimer quand même", "Annuler",
-			container.New(&widthLayout{w: 380}, msg), func(ok bool) {
+		confirm := "Imprimer quand même"
+		if boxWidth(w, 380) < 380 { // téléphone : les deux boutons tiennent côte à côte
+			confirm = "Imprimer"
+		}
+		dialog.NewCustomConfirm("Fiche incomplète", confirm, "Annuler",
+			container.New(&widthLayout{w: boxWidth(w, 380)}, msg), func(ok bool) {
 				if ok {
 					printNow()
 				}
@@ -119,6 +123,9 @@ func mainContent(s *session, w fyne.Window) (fyne.CanvasObject, *toolsPanel) {
 	fiche := newFichePanel(s)
 	tools := newToolsPanel(s, w)
 	w.Canvas().SetOnTypedKey(tools.typedKey)
+	if responsive {
+		return respContent(s, w, fiche, tools, onPrint), tools
+	}
 
 	body := container.New(&ratioLayout{left: 0.46, gap: 24}, fiche.root, tools.root)
 	return container.NewBorder(
@@ -280,7 +287,13 @@ func stepBar(s *session, onStep func(category string)) fyne.CanvasObject {
 	update()
 
 	head := container.NewBorder(nil, nil, container.NewHBox(counter, label), container.NewCenter(hint))
+	if responsive { // étroit : la consigne passe sous l'étape
+		head = container.New(&flowLayout{gap: 12, vgap: 2, spread: true}, container.NewHBox(counter, label), hint)
+	}
 	content := container.NewVBox(head, container.New(&respGrid{minCol: 10, cols: []int{len(steps)}, gap: 4}, segObjs...))
+	if responsive {
+		return container.NewStack(newRect(cSurface, cLineStrong, 8), container.New(&padLayout{h: 14, v: 8}, content))
+	}
 	bar := container.NewStack(newRect(cSurface, cLineStrong, 8), container.New(&padLayout{h: 14, v: 8}, content))
 	return container.New(&widthLayout{w: 460}, bar)
 }
@@ -296,8 +309,16 @@ func showInfo(s *session, w fyne.Window) {
 		text("gobox", 20, true, cAccent),
 		wrapLabel("Toolbox de reconditionnement de La Capsule : chaque bouton lance un test, le résultat s'inscrit dans la fiche, puis PRINT ouvre la fiche à enregistrer ou imprimer."),
 		formRow("Fiche en cours", text(s.Ref, 13, true, cText)),
-		sectionTitle("Raccourcis clavier"),
-		keys,
+	)
+	if responsive && headerChips != nil && !headerChips.Visible() {
+		// en-tête étroit : durée et température n'y sont plus
+		content.Add(formRow("Durée", text(s.elapsed(), 13, true, cText)))
+		content.Add(formRow("CPU", text(headerCPU.Text, 13, true, cText)))
+	}
+	if !touchUI { // pas de raccourcis sans clavier
+		content.Objects = append(content.Objects, sectionTitle("Raccourcis clavier"), keys)
+	}
+	content.Objects = append(content.Objects,
 		container.NewHBox(secondaryButton("Diagnostic matériel", buttonIcon("microchip"), func() { showDiagnostic(w) })),
 		mutedNote("Icônes : Font Awesome Free (CC BY 4.0). Polices : Exo 2 et Share Tech Mono (SIL OFL 1.1)."),
 	)
@@ -326,6 +347,11 @@ func showSettings(w fyne.Window, f *fichePanel) {
 		formRow("Fiche", detail),
 		mutedNote("Valables jusqu'au redémarrage du PC : chaque lancement repart des réglages par défaut."),
 	)
+	if responsive && boxWidth(w, 460) < 460 { // étroit : libellé au-dessus du choix
+		detail.Text = "Détail des tests confirmés"
+		content.Objects[0] = container.NewVBox(caption("Thème"), choice)
+		content.Objects[1] = container.NewVBox(caption("Fiche"), detail)
+	}
 	showPopup(w, "Réglages", content)
 }
 
@@ -370,13 +396,18 @@ func (t *tapLayer) Tapped(*fyne.PointEvent)             { t.onTap() }
 func showPopup(w fyne.Window, title string, content fyne.CanvasObject) {
 	closePopup()
 	head := container.NewBorder(nil, nil, nil, iconButton(theme.CancelIcon(), closePopup), container.NewCenter(sectionTitle(title)))
-	body := container.New(&padLayout{h: 16, v: 12}, container.New(&widthLayout{w: 460}, container.NewVBox(head, content)))
+	body := container.New(&padLayout{h: 16, v: 12}, container.New(&widthLayout{w: boxWidth(w, 460)}, container.NewVBox(head, content)))
 	card := newTapLayer(container.NewStack(newRect(cSurface, cLineStrong, 12), body), func() {})
 	dim := canvas.NewRectangle(color.NRGBA{A: 150})
 	root := container.NewStack(newTapLayer(dim, closePopup), container.NewCenter(card))
 	root.Resize(w.Canvas().Size())
 	w.Canvas().Overlays().Add(root)
 	openPopup = &popup{canvas: w.Canvas(), root: root}
+	if responsive {
+		// boîte plus étroite que les textes : leur hauteur se recalcule une
+		// fois leur largeur connue
+		go fyne.Do(func() { root.Refresh() })
+	}
 }
 
 // ratioLayout deux colonnes : gauche = left × largeur

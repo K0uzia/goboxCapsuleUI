@@ -31,7 +31,10 @@ def main() -> int:
     # image coûte nettement moins en WebAssembly
     raw = out / "gobox.wasm"
     env = dict(os.environ, GOOS="js", GOARCH="wasm")
-    subprocess.run(["go", "build", "-tags", "demo migrated_fynedo", "-trimpath", "-ldflags=-s -w", "-o", str(raw), "./cmd/gobox-demo"],
+    # GOBOX_DEMO_DEBUG=1 : version de recette (goboxFind pour les tests
+    # automatiques du navigateur), jamais publiée
+    tags = "demo migrated_fynedo" + (" demodebug" if os.environ.get("GOBOX_DEMO_DEBUG") else "")
+    subprocess.run(["go", "build", "-tags", tags, "-trimpath", "-ldflags=-s -w", "-o", str(raw), "./cmd/gobox-demo"],
                    cwd=ROOT, env=env, check=True)
     data = raw.read_bytes()
     raw.unlink()

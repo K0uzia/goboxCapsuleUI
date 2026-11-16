@@ -1,3 +1,8 @@
-/* Cadre de l'application : la toile de Fyne occupe tout */
-html, body { height: 100%; margin: 0; overflow: hidden; background: #0b1020; }
+/* Cadre de l'application : la toile de Fyne occupe tout. Les gestes du doigt
+   sont traités par app.js (défilement, appui long), pas par le navigateur. */
+html, body { height: 100%; margin: 0; overflow: hidden; background: #0b1020; touch-action: none; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
 canvas { display: block; }
+
+/* champ qui reçoit la saisie du clavier virtuel : invisible, 16 px pour que
+   Safari ne zoome pas la page quand il prend le focus */
+.dummy-entry { position: fixed; top: 0; left: 0; width: 1px; height: 1px; padding: 0; border: 0; font-size: 16px; opacity: 0; pointer-events: none; }

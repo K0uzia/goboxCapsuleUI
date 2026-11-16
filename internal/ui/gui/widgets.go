@@ -80,7 +80,16 @@ type tText struct {
 	Bold      bool
 	Mono      bool
 	Alignment fyne.TextAlign
-	txt       *canvas.Text
+	// Wrap passe à la ligne entre les mots quand la largeur manque (démo sur
+	// téléphone, voir rtext) ; faux : une seule ligne, comme dans l'atelier
+	Wrap  bool
+	txt   *canvas.Text
+	lines []*canvas.Text // lignes affichées quand Wrap
+	wrapW float32        // largeur de la dernière mise en page (Wrap)
+	wrapC wrapCache      // dernier découpage calculé (Wrap)
+	// dernière mise en page des lignes (Wrap)
+	lastLayout fyne.Size
+	lastRole   fyne.ThemeColorName
 }
 
 func text(s string, size float32, bold bool, role fyne.ThemeColorName) *tText {
@@ -108,12 +117,41 @@ func (t *tText) CreateRenderer() fyne.WidgetRenderer {
 
 type textRenderer struct{ t *tText }
 
-func (tr *textRenderer) Layout(s fyne.Size)           { tr.t.txt.Resize(s) }
-func (tr *textRenderer) MinSize() fyne.Size           { tr.t.sync(); return tr.t.txt.MinSize() }
-func (tr *textRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{tr.t.txt} }
-func (tr *textRenderer) Destroy()                     {}
+func (tr *textRenderer) Layout(s fyne.Size) {
+	if tr.t.Wrap {
+		tr.t.layoutWrapped(s)
+		return
+	}
+	tr.t.txt.Resize(s)
+}
+
+func (tr *textRenderer) MinSize() fyne.Size {
+	tr.t.sync()
+	if tr.t.Wrap {
+		return tr.t.wrappedMinSize()
+	}
+	return tr.t.txt.MinSize()
+}
+
+func (tr *textRenderer) Objects() []fyne.CanvasObject {
+	if tr.t.Wrap {
+		objs := make([]fyne.CanvasObject, len(tr.t.lines))
+		for i, l := range tr.t.lines {
+			objs[i] = l
+		}
+		return objs
+	}
+	return []fyne.CanvasObject{tr.t.txt}
+}
+
+func (tr *textRenderer) Destroy() {}
 func (tr *textRenderer) Refresh() {
 	tr.t.sync()
+	if tr.t.Wrap {
+		tr.t.lastLayout = fyne.Size{} // couleurs du thème relues
+		tr.t.layoutWrapped(tr.t.Size())
+		return
+	}
 	tr.t.txt.Refresh()
 }
 
@@ -465,7 +503,7 @@ func newSegmented(opts []string, selected string, minCol float32, onChange func(
 	objs := make([]fyne.CanvasObject, len(opts))
 	for i, o := range opts {
 		it := &segItem{bg: newRect(cSurface, cLine, 7), label: text(o, 13, false, cText)}
-		it.bg.MinSz = fyne.NewSize(0, 36)
+		it.bg.MinSz = fyne.NewSize(0, touchMin(36))
 		it.label.Alignment = fyne.TextAlignCenter
 		it.tap = newTapArea(container.NewStack(it.bg, container.NewCenter(it.label)), func() { s.set(o) })
 		it.tap.onState = func(bool, bool) { s.paint() }
@@ -583,6 +621,13 @@ func (b *verdictButton) paint() {
 
 // verdictRow boutons de verdict côte à côte, sur plusieurs lignes au besoin
 func verdictRow(buttons []fyne.CanvasObject) fyne.CanvasObject {
+	if responsive { // démo : une colonne s'il le faut pour qu'aucun libellé ne soit coupé
+		minCol := float32(120)
+		for _, b := range buttons {
+			minCol = max(minCol, b.MinSize().Width)
+		}
+		return container.New(&respGrid{minCol: minCol, cols: []int{len(buttons), 2, 1}, gap: 8}, buttons...)
+	}
 	return container.New(&respGrid{minCol: 120, cols: []int{len(buttons), 2, 1}, gap: 8}, buttons...)
 }
 
@@ -604,7 +649,7 @@ func newChoiceBar(opts []string, selected string, allowNone bool, roles func(str
 	objs := make([]fyne.CanvasObject, len(opts))
 	for i, o := range opts {
 		it := &segItem{bg: newRect(cSurface, cLine, 6), label: text(o, 12, false, cMuted)}
-		it.bg.MinSz = fyne.NewSize(50, 28)
+		it.bg.MinSz = fyne.NewSize(50, touchMin(28))
 		it.label.Alignment = fyne.TextAlignCenter
 		it.tap = newTapArea(container.NewStack(it.bg, container.NewCenter(it.label)), func() { c.set(o) })
 		it.tap.onState = func(bool, bool) { c.paint() }

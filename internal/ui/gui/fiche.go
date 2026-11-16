@@ -35,6 +35,15 @@ type fichePanel struct {
 	detailBox    *fyne.Container
 	inventoryBox *fyne.Container
 	detailed     bool
+
+	// démo adaptée à la largeur (responsive) : en-tête fixe ou qui défile
+	top        fyne.CanvasObject
+	topSlot    *fyne.Container // au-dessus de la zone qui défile
+	paperSlot  *fyne.Container // en haut de la zone qui défile (téléphone)
+	topPad     *padLayout
+	paperPad   *padLayout
+	compact    bool
+	onRequired func() // champs à remplir changés
 }
 
 func newFichePanel(s *session) *fichePanel {
@@ -64,6 +73,9 @@ func newFichePanel(s *session) *fichePanel {
 	date := container.NewHBox(text("Fait le", 13, false, cMuted), text(s.Started.Format("02/01/2006 à 15:04"), 13, true, cText))
 	progress := container.NewVBox(f.counts, container.New(&widthLayout{w: 170}, f.progress.root))
 	header := container.NewBorder(nil, nil, nil, progress, container.NewVBox(ref, title, date))
+	if responsive { // étroit : l'avancement passe sous le titre
+		header = container.New(&flowLayout{gap: 12, vgap: 8, spread: true, stretch: true}, container.NewVBox(ref, title, date), progress)
+	}
 	// Tant que le technicien manque, son champ est entouré et signalé : c'est
 	// la première étape
 	f.techRing = newMarchFrame()
@@ -73,8 +85,19 @@ func newFichePanel(s *session) *fichePanel {
 		container.New(&widthLayout{w: 260}, container.NewStack(tech, f.techRing)),
 		container.NewCenter(f.techHint),
 	)
+	if responsive {
+		entryW := float32(260)
+		if touchUI { // tient à côté de son libellé sur un téléphone de 360
+			entryW = 220
+		}
+		techRow = container.New(&flowLayout{gap: 8, vgap: 4},
+			container.NewVBox(layout.NewSpacer(), text("Fait par", 13, false, cMuted), layout.NewSpacer()),
+			container.New(&widthLayout{w: entryW}, container.NewStack(tech, f.techRing)),
+			container.NewCenter(f.techHint),
+		)
+	}
 	f.showTechHint()
-	f.todo = text("", 12, true, cAccent)
+	f.todo = rtext("", 12, true, cAccent)
 
 	// Synthèse : machine, aspect, nettoyage, verdict
 	f.machineName = text("Détection…", 13, true, cText)
@@ -111,6 +134,9 @@ func newFichePanel(s *session) *fichePanel {
 
 	notes := widget.NewMultiLineEntry()
 	notes.SetPlaceHolder("Observations du technicien (reportées sur la fiche)")
+	if touchUI { // tient sur un téléphone, le champ ne passe pas à la ligne
+		notes.SetPlaceHolder("Observations (reportées sur la fiche)")
+	}
 	notes.SetMinRowsVisible(3)
 	notes.SetText(s.Form.Notes)
 	notes.OnChanged = func(v string) { s.Form.Notes = v }
@@ -121,15 +147,28 @@ func newFichePanel(s *session) *fichePanel {
 
 	gap := func() fyne.CanvasObject { return container.New(&padLayout{v: 4}) }
 	// En-tête fixe (référence, avancement, technicien), le reste défile
-	top := container.New(&padLayout{h: 18, v: 14}, container.NewVBox(header, techRow, f.todo, gap(), hRule(cLineStrong)))
+	f.topPad = &padLayout{h: 18, v: 14}
+	top := container.New(f.topPad, container.NewVBox(header, techRow, f.todo, gap(), hRule(cLineStrong)))
+	f.top = top
+	f.topSlot = container.NewStack(top)
+	f.paperSlot = container.NewStack()
+	f.paperSlot.Hide()
 	paper := container.NewVBox(
 		summary, gap(), controls, gap(),
 		sectionTitle("Observations du technicien"), f.pass(notes),
 		f.detailBox, gap(),
 		sectionTitle("Matériel et résultats des tests"), f.inventoryBox,
 	)
-	f.scroll.Content = container.New(&padLayout{h: 18, v: 12}, paper)
-	f.root = container.NewStack(newRect(cSurface, cLine, 12), container.NewBorder(top, nil, nil, nil, f.scroll))
+	if responsive {
+		paper.Objects = append([]fyne.CanvasObject{f.paperSlot}, paper.Objects...)
+	}
+	f.paperPad = &padLayout{h: 18, v: 12}
+	f.scroll.Content = container.New(f.paperPad, paper)
+	if responsive {
+		f.root = container.NewStack(newRect(cSurface, cLine, 12), container.NewBorder(f.topSlot, nil, nil, nil, f.scroll))
+	} else {
+		f.root = container.NewStack(newRect(cSurface, cLine, 12), container.NewBorder(top, nil, nil, nil, f.scroll))
+	}
 
 	s.onChange(f.refresh)
 	f.refresh()
@@ -165,6 +204,36 @@ func (f *fichePanel) updateRequired() {
 	missing := f.s.missingInfo()
 	f.todo.Hidden = len(missing) == 0
 	f.todo.SetText(fmt.Sprintf("À remplir (%d) : %s", len(missing), strings.Join(missing, ", ")))
+	if f.onRequired != nil {
+		f.onRequired()
+	}
+}
+
+// setCompact téléphone ou écran bas (démo) : l'en-tête de la fiche défile avec
+// elle et les marges se resserrent, pour laisser la place au contenu
+func (f *fichePanel) setCompact(on bool) {
+	if f.topSlot == nil || on == f.compact {
+		return
+	}
+	f.compact = on
+	if on {
+		f.topSlot.Objects = nil
+		f.paperSlot.Objects = []fyne.CanvasObject{f.top}
+		f.topSlot.Hide()
+		f.paperSlot.Show()
+		f.topPad.h, f.topPad.v = 0, 0
+		f.paperPad.h, f.paperPad.v = 12, 12
+	} else {
+		f.paperSlot.Objects = nil
+		f.topSlot.Objects = []fyne.CanvasObject{f.top}
+		f.paperSlot.Hide()
+		f.topSlot.Show()
+		f.topPad.h, f.topPad.v = 18, 14
+		f.paperPad.h, f.paperPad.v = 18, 12
+	}
+	f.topSlot.Refresh()
+	f.paperSlot.Refresh()
+	f.root.Refresh()
 }
 
 // statusRoles couleurs d'une case OK / Moyen / Nul
@@ -320,7 +389,20 @@ func inventoryCard(c ficheSection) fyne.CanvasObject {
 			p.text.SetText(r.pillLabel())
 			result = container.NewCenter(p.root)
 		}
-		labelBox := container.New(&widthLayout{w: 110}, container.NewVBox(container.New(&padLayout{v: 7}, label)))
+		labelBox := container.New(&widthLayout{w: 110}, container.NewVBox(container.New(&padLayout{v: labelPad(7)}, label)))
+		if responsive {
+			// démo : textes sans la marge des Label (agrandie au doigt), lignes serrées
+			label.Wrap = true
+			v := rtext(r.Value, 11, false, cText)
+			labelBox = container.New(&widthLayout{w: 110}, container.New(&padLayout{h: 0, v: 6}, label))
+			val := container.New(&padLayout{h: 4, v: 6}, v)
+			if r.Tested && len(r.Value) > 24 {
+				rows.Add(container.NewVBox(container.NewBorder(nil, nil, labelBox, result), container.New(&padLayout{h: 0, v: 0}, val)))
+				continue
+			}
+			rows.Add(container.NewBorder(nil, nil, labelBox, result, val))
+			continue
+		}
 		if r.Tested && len(r.Value) > 24 { // détail long : sous le libellé, sur toute la largeur
 			rows.Add(container.NewVBox(container.NewBorder(nil, nil, labelBox, result), value))
 			continue

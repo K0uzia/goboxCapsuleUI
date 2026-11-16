@@ -93,7 +93,6 @@ async function download() {
 }
 
 async function start() {
-  $('phone').hidden = true;
   $('loading').hidden = false;
   try {
     if (!('WebAssembly' in window) || !('DecompressionStream' in window)) {
@@ -113,12 +112,12 @@ async function start() {
   }
 }
 
-// Écran étroit ou bas : l'application garde sa taille minimale d'ordinateur,
-// réduite pour tenir dans la page (les clics restent justes, le cadre fait la
-// conversion). Plus basse que APP_MIN_HEIGHT, la fenêtre de GoBox perdait son
-// en-tête (étapes, PRINT) : téléphone à l'horizontale, petite fenêtre.
-const APP_MIN_WIDTH = 1280;
-const APP_MIN_HEIGHT = 700;
+// L'application suit la taille de la page : deux colonnes sur ordinateur,
+// onglets sur tablette et téléphone, à l'échelle 1. Seul un écran plus petit
+// que APP_MIN_WIDTH × APP_MIN_HEIGHT la réduit (les touchers restent justes, le
+// cadre fait la conversion).
+const APP_MIN_WIDTH = 320;
+const APP_MIN_HEIGHT = 420;
 function fit() {
   const frame = document.querySelector('.app-frame');
   if (!frame) return;
@@ -171,10 +170,4 @@ $('reset').addEventListener('click', () => {
   location.reload();
 });
 
-$('launch').addEventListener('click', start);
-
-if (window.matchMedia('(max-width: 799px)').matches) {
-  $('phone').hidden = false;
-} else {
-  start();
-}
+start();

@@ -3,7 +3,7 @@
 - depot: goboxCapsuleUI
 - type: à confirmer (proposé : logiciel-bureau, ajouté au kit après l'étape 1)
 - statut: validé le 2026-10-28
-- mise à jour: 2026-11-13
+- mise à jour: 2026-11-16
 
 Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `web-*` ne s'appliquent que pour leurs principes d'interface (voir « Modèle à respecter »). Ce fichier ne contient que ce qui est propre au projet.
 
@@ -87,6 +87,7 @@ Les règles `00-organisation` et `web-method` s'appliquent. Les autres règles `
 | 2026-11-03 | MAJ : barre de progression arrêtée et consigne « En attente de votre accord » jusqu'au clic sur « Lancer la mise à jour » | le technicien attendait en croyant la mise à jour lancée |
 | 2026-11-06 | PC de bureau (châssis non portable) : une prise USB 2.0 seule ne compte qu'une fois utilisée (déjà occupée à l'ouverture du test ou branchée pendant) ; le nombre de sorties vidéo du BIOS et de la table Intel n'est plus repris (« nombre de prises non lu », chaque sortie apparaît au branchement), seule une carte AMD ou NVIDIA donne un nombre. À confirmer par un test sur tour de l'humain | sur tour, le microprogramme déclare les connecteurs internes, la façade non câblée et la sortie vidéo vendue en option (signalé par l'humain : USB 2.0 en trop, 2 DisplayPort pour 1) |
 | 2026-11-13 | Toute machine (étend la décision du 2026-11-06) : une prise USB 2.0 seule ne compte qu'une fois utilisée. Prise VGA vue DisplayPort par la carte Intel (pont DP vers VGA) : quand le BIOS annonce du VGA sans DisplayPort et que la carte n'a aucun connecteur VGA, ses connecteurs DisplayPort sont la prise VGA | relevé réel d'un Dell Latitude 3550 (signalé par les techniciens) : 7 USB 2.0 annoncées pour 0 (ports du contrôleur EHCI et du xHCI sans prise), VGA compté DisplayPort |
+| 2026-11-16 | Démo en ligne (étiquette `demo`, `cmd/gobox-demo`) adaptée à la largeur : deux colonnes dès 1000 px, onglets Tests / Fiche en dessous, cibles de 44 px sur écran tactile, test clavier au toucher (« Appuyer sur toutes les touches »). Tout passe par `responsive` et `touchUI` (`internal/ui/gui/responsive.go`), faux dans l'application de l'atelier, dont les captures `TestCaptures` restent identiques | demande de l'humain : version téléphone et tablette de la démo, sans toucher au poste de l'atelier |
 | 2026-10-27 | Tracebay-Autonome (tout sur un poste, système de licence) : source principale pour la logique ; Tracebay (serveur séparé sur le réseau) : source pour le fonctionnement en réseau | réponse d'interview |
 
 ## Modèle à respecter

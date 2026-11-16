@@ -39,6 +39,9 @@ func newToolsPanel(s *session, win fyne.Window) *toolsPanel {
 		cols int
 	}{{catPeripherals, 5}, {catStorage, 3}, {catSystem, 1}} {
 		grid := container.NewGridWithColumns(cat.cols)
+		if responsive { // colonnes selon la largeur, 2 au moins sur téléphone
+			grid = container.New(&respGrid{minCol: 128, cols: colsUpTo(cat.cols), gap: 6})
+		}
 		for _, t := range s.Tests {
 			if t.Category == cat.name {
 				b := newToolButton(t, func() { p.launch(t) })
@@ -61,12 +64,20 @@ func newToolsPanel(s *session, win fyne.Window) *toolsPanel {
 		head := container.NewBorder(nil, nil,
 			container.NewHBox(container.NewCenter(dot), text(strings.ToUpper(cat.name), 12, true, ink), container.NewCenter(tag)),
 			container.NewCenter(done))
+		if responsive {
+			head = container.New(&flowLayout{gap: 8, vgap: 4, spread: true},
+				container.NewHBox(container.NewCenter(dot), text(strings.ToUpper(cat.name), 12, true, ink), container.NewCenter(tag)),
+				container.NewCenter(done))
+		}
 		menu.Add(container.New(&padLayout{v: 4}, head))
 		menu.Add(grid)
 	}
 	menu.Add(container.New(&padLayout{v: 10}, hRule(cLine)))
 	menu.Add(guide())
 	p.menu = menu
+	if responsive { // téléphone, tablette : les tests défilent
+		p.menu = container.NewVScroll(container.New(&padLayout{h: 2, v: 2}, menu))
+	}
 	p.view = newTestView(p)
 	p.root = container.NewStack(p.menu, p.view.root)
 	p.view.root.Hide()
@@ -89,9 +100,15 @@ func guide() fyne.CanvasObject {
 		num := text(fmt.Sprintf("%d", i+1), 13, true, cAccent)
 		num.Alignment = fyne.TextAlignCenter
 		badge := container.NewStack(newRect(cAccentSoft, "", 11), container.New(&padLayout{h: 7, v: 2}, num))
+		if responsive {
+			list.Add(container.NewBorder(nil, nil, container.NewVBox(badge), nil, rtext(s, 13, false, cText)))
+			continue
+		}
 		list.Add(container.NewHBox(badge, container.NewCenter(text(s, 13, false, cText))))
 	}
-	list.Add(text("Échap annule un test en cours. Entrée valide le résultat affiché.", 12, false, cMuted))
+	if !touchUI {
+		list.Add(rtext("Échap annule un test en cours. Entrée valide le résultat affiché.", 12, false, cMuted))
+	}
 	return box(list, cLine, cSurface)
 }
 
@@ -251,7 +268,7 @@ func newTestView(p *toolsPanel) *testView {
 	v := &testView{p: p}
 	v.category = caption("")
 	v.title = text("", 22, true, cText)
-	v.desc = text("", 13, false, cMuted)
+	v.desc = rtext("", 13, false, cMuted)
 	v.band = newRect(cSurface2, "", 10)
 	v.simBadge = container.NewStack(newRect(cWarningBg, cWarning, 9), container.New(&padLayout{h: 9, v: 3}, text("DONNÉES SIMULÉES", 10, true, cWarning)))
 	v.simBadge.Hide()
@@ -259,14 +276,23 @@ func newTestView(p *toolsPanel) *testView {
 	bigIcon := container.NewCenter(container.NewGridWrap(fyne.NewSize(34, 34), v.bandIcon))
 	band := container.NewStack(v.band, container.New(&padLayout{h: 16, v: 12}, container.NewBorder(nil, nil,
 		container.NewHBox(bigIcon, container.New(&padLayout{h: 2})), container.NewVBox(v.simBadge), container.NewVBox(v.category, v.title, v.desc))))
+	if responsive { // le badge « Données simulées » sous la description
+		band = container.NewStack(v.band, container.New(&padLayout{h: 12, v: 10}, container.NewBorder(nil, nil,
+			container.NewHBox(bigIcon, container.New(&padLayout{h: 2})), nil,
+			container.NewVBox(v.category, v.title, v.desc, container.NewHBox(v.simBadge)))))
+	}
 
 	v.bar = newThinBar(cAccent, 6)
 	v.barPct = text("0 %", 12, true, cMuted)
 	v.barPct.Alignment = fyne.TextAlignTrailing
 	v.barInf = widget.NewProgressBarInfinite()
+	var inf fyne.CanvasObject = v.barInf
+	if responsive { // barre animée fine, comme la barre d'avancement
+		inf = container.New(&capHeight{h: 6}, v.barInf)
+	}
 	progress := container.NewStack(
 		container.NewBorder(nil, nil, nil, container.New(&widthLayout{w: 44}, v.barPct), container.NewVBox(layout.NewSpacer(), v.bar.root, layout.NewSpacer())),
-		v.barInf,
+		inf,
 	)
 
 	v.panel = container.NewStack()
@@ -277,7 +303,7 @@ func newTestView(p *toolsPanel) *testView {
 	logBox := v.newLog()
 
 	v.resultPill = newPill(statusIdle)
-	v.resultHead = text("", 17, true, cText)
+	v.resultHead = rtext("", 17, true, cText)
 	v.resultDetail = wrapLabel("")
 	v.resultMeta = text("", 12, false, cMuted)
 	v.adviceList = container.NewVBox()
@@ -300,13 +326,19 @@ func newTestView(p *toolsPanel) *testView {
 		secondaryButton("Relancer", theme.ViewRefreshIcon(), func() { p.launch(p.active) }),
 		primaryButton("Valider ce résultat", theme.ConfirmIcon(), func() { p.close(true) }),
 	)
+	if responsive { // étroit : boutons l'un sous l'autre plutôt que coupés
+		v.finished = container.New(&flowLayout{gap: 8, vgap: 8, right: true},
+			secondaryButton("Relancer", theme.ViewRefreshIcon(), func() { p.launch(p.active) }),
+			primaryButton("Valider ce résultat", theme.ConfirmIcon(), func() { p.close(true) }),
+		)
+	}
 	v.resultBox = container.NewVBox(
 		container.NewStack(v.resultBg, container.New(&padLayout{h: 14, v: 10}, container.NewVBox(
-			container.NewHBox(container.NewCenter(v.resultPill.root), v.resultHead),
+			resultHeadRow(v.resultPill.root, v.resultHead),
 			v.resultDetail, v.resultMeta,
 		))),
 		v.resultAdvice,
-		caption("Résultat différent ? Le choisir, il remplace celui du test :"),
+		rcaption("Résultat différent ? Le choisir, il remplace celui du test :"),
 		verdictRow(choiceObjs),
 		v.finished,
 	)
@@ -420,7 +452,7 @@ func (v *testView) appendLog(msg string) {
 	line.TextStyle.Monospace = true
 	left := container.NewHBox(container.NewCenter(dot), container.New(&widthLayout{w: 62}, container.NewCenter(clock)))
 	// décalage du libellé (marge intérieure du Label) pour aligner heure et texte
-	v.logRows.Add(container.NewBorder(nil, nil, container.NewVBox(container.New(&padLayout{v: 6}, left)), nil, line))
+	v.logRows.Add(container.NewBorder(nil, nil, container.NewVBox(container.New(&padLayout{v: labelPad(6)}, left)), nil, line))
 	v.logEmpty.Hide()
 	v.logCount.SetText(fmt.Sprintf("%d ligne(s)", len(v.logLines)))
 	v.logLast.SetText(msg)
@@ -523,7 +555,7 @@ func (v *testView) showResult(r result) {
 	for _, a := range r.Advice {
 		dot := newRect(cAccent, "", 3)
 		dot.MinSz = fyne.NewSize(6, 6)
-		v.adviceList.Add(container.NewBorder(nil, nil, container.NewVBox(container.New(&padLayout{v: 13}, container.NewCenter(dot))), nil, wrapLabel(a)))
+		v.adviceList.Add(container.NewBorder(nil, nil, container.NewVBox(container.New(&padLayout{v: labelPad(13)}, container.NewCenter(dot))), nil, wrapLabel(a)))
 	}
 	v.resultAdvice.Hidden = len(r.Advice) == 0
 	v.resultMeta.SetText("Durée : " + formatDuration(r.Duration))
